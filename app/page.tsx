@@ -2,47 +2,63 @@ import { Movie } from '@/lib/types';
 import Navbar from '@/components/Navbar';
 import HeroSection from '@/components/HeroSection';
 import MovieRow from '@/components/MovieRow';
+import { supabase } from '@/lib/supabase';
 
 async function getMovies(): Promise<Movie[]> {
   try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const data = fs.readFileSync(path.join(process.cwd(), 'data', 'movies.json'), 'utf-8');
-    return JSON.parse(data);
+    const { data, error } = await supabase
+      .from('movies')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error || !data) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      genre: row.genre,
+      genres: row.genres,
+      year: row.year,
+      rating: row.rating,
+      thumbnail: row.thumbnail,
+      backdrop: row.backdrop,
+      videoUrl: row.video_url,
+      duration: row.duration,
+      featured: row.featured,
+    }));
   } catch {
     return [];
   }
 }
 
+export const revalidate = 0; // Always fetch fresh data
+
 export default async function HomePage() {
   const movies = await getMovies();
   const featured = movies.find((m) => m.featured) ?? movies[0];
 
-  const allMovies = movies;
   const trending = [...movies].sort((a, b) => b.rating - a.rating);
-  const animation = movies.filter((m) => m.genres.includes('Animation'));
-  const action = movies.filter((m) => m.genres.includes('Action'));
-  const drama = movies.filter((m) => m.genres.includes('Drama') || m.genres.includes('Sci-Fi'));
+  const animation = movies.filter((m) => m.genres?.includes('Animation'));
+  const action = movies.filter((m) => m.genres?.includes('Action'));
+  const drama = movies.filter((m) => m.genres?.includes('Drama') || m.genres?.includes('Sci-Fi'));
   const recent = [...movies].sort((a, b) => b.year - a.year);
 
   return (
     <main className="min-h-screen bg-black">
       <Navbar />
 
-      {/* Hero */}
       {featured && <HeroSection movie={featured} />}
 
-      {/* Movie Rows */}
       <div className="relative z-10 -mt-16 pb-16">
         <MovieRow title="Trending Now" movies={trending} />
-        <MovieRow title="All Movies" movies={allMovies} />
+        <MovieRow title="All Movies" movies={movies} />
         {animation.length > 0 && <MovieRow title="Animation" movies={animation} />}
         {action.length > 0 && <MovieRow title="Action & Thrills" movies={action} />}
         {drama.length > 0 && <MovieRow title="Drama & Sci-Fi" movies={drama} />}
         <MovieRow title="Recently Added" movies={recent} />
       </div>
 
-      {/* Footer */}
       <footer className="border-t border-white/5 px-4 sm:px-6 lg:px-8 py-12 max-w-[1800px] mx-auto">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">

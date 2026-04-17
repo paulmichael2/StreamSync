@@ -18,22 +18,6 @@
     "featured": false
   },
   {
-    "id": "1776443248270",
-    "title": "IronMan 1",
-    "description": "Ironman",
-    "genre": "Action",
-    "genres": [
-      "Action"
-    ],
-    "year": 2026,
-    "rating": 7,
-    "thumbnail": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
-    "backdrop": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
-    "videoUrl": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
-    "duration": "N/A",
-    "featured": false
-  },
-  {
     "id": "1776443649506",
     "title": "Test",
     "description": "Test",
