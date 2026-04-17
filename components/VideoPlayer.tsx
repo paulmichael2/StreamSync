@@ -5,20 +5,20 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Settings, Users, Wifi
 } from 'lucide-react';
-import { Socket } from 'socket.io-client';
+import { getPusherClient } from '@/lib/pusherClient';
 import { Participant } from '@/lib/types';
 
 interface VideoPlayerProps {
   videoUrl: string;
   movieTitle: string;
   roomId: string;
-  socket: Socket | null;
   participants: Participant[];
-  onReady?: () => void;
+  initialTime?: number;
+  initialPlaying?: boolean;
 }
 
 function formatTime(s: number): string {
-  if (isNaN(s)) return '0:00';
+  if (isNaN(s) || !isFinite(s)) return '0:00';
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = Math.floor(s % 60);
@@ -26,8 +26,16 @@ function formatTime(s: number): string {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+async function triggerEvent(roomId: string, event: string, data: Record<string, unknown>) {
+  await fetch('/api/pusher', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomId, event, data }),
+  });
+}
+
 export default function VideoPlayer({
-  videoUrl, movieTitle, roomId, socket, participants, onReady,
+  videoUrl, movieTitle, roomId, participants, initialTime = 0, initialPlaying = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,90 +52,81 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSyncIndicator, setIsSyncIndicator] = useState(false);
-  const [syncUser, setSyncUser] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
 
-  // Show sync flash
-  const flashSync = useCallback((user: string) => {
-    setSyncUser(user);
+  const flashSync = useCallback(() => {
     setIsSyncIndicator(true);
     setTimeout(() => setIsSyncIndicator(false), 2000);
   }, []);
 
-  // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);
     clearTimeout(controlsTimer.current);
     controlsTimer.current = setTimeout(() => {
-      if (isPlaying) setShowControls(false);
+      if (videoRef.current && !videoRef.current.paused) setShowControls(false);
     }, 3000);
-  }, [isPlaying]);
+  }, []);
 
-  // Socket sync listeners
+  // Subscribe to Pusher channel for remote sync events
   useEffect(() => {
-    if (!socket) return;
+    const pusher = getPusherClient();
+    const channel = pusher.subscribe(`room-${roomId}`);
 
-    const handlePlay = ({ currentTime: ct }: { currentTime: number }) => {
+    channel.bind('play', ({ currentTime: ct }: { currentTime: number }) => {
       if (!videoRef.current) return;
       isSyncing.current = true;
       videoRef.current.currentTime = ct;
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
       setTimeout(() => { isSyncing.current = false; }, 300);
-      flashSync('Party');
-    };
+      flashSync();
+    });
 
-    const handlePause = ({ currentTime: ct }: { currentTime: number }) => {
+    channel.bind('pause', ({ currentTime: ct }: { currentTime: number }) => {
       if (!videoRef.current) return;
       isSyncing.current = true;
       videoRef.current.currentTime = ct;
       videoRef.current.pause();
       setIsPlaying(false);
       setTimeout(() => { isSyncing.current = false; }, 300);
-      flashSync('Party');
-    };
+      flashSync();
+    });
 
-    const handleSeek = ({ currentTime: ct }: { currentTime: number }) => {
+    channel.bind('seek', ({ currentTime: ct }: { currentTime: number }) => {
       if (!videoRef.current) return;
       isSyncing.current = true;
       videoRef.current.currentTime = ct;
       setTimeout(() => { isSyncing.current = false; }, 300);
-      flashSync('Party');
-    };
-
-    const handleSyncState = ({ currentTime: ct, isPlaying: playing }: { currentTime: number; isPlaying: boolean }) => {
-      if (!videoRef.current) return;
-      isSyncing.current = true;
-      videoRef.current.currentTime = ct;
-      if (playing) {
-        videoRef.current.play().catch(() => {});
-        setIsPlaying(true);
-      } else {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      }
-      setTimeout(() => { isSyncing.current = false; }, 500);
-    };
-
-    socket.on('play', handlePlay);
-    socket.on('pause', handlePause);
-    socket.on('seek', handleSeek);
-    socket.on('sync-state', handleSyncState);
+      flashSync();
+    });
 
     return () => {
-      socket.off('play', handlePlay);
-      socket.off('pause', handlePause);
-      socket.off('seek', handleSeek);
-      socket.off('sync-state', handleSyncState);
+      channel.unbind('play');
+      channel.unbind('pause');
+      channel.unbind('seek');
     };
-  }, [socket, flashSync]);
+  }, [roomId, flashSync]);
 
-  // Fullscreen change listener
+  // Apply initial sync state once video is ready
   useEffect(() => {
-    const onFSChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', onFSChange);
-    return () => document.removeEventListener('fullscreenchange', onFSChange);
+    if (!videoRef.current || initialTime === 0) return;
+    const apply = () => {
+      if (!videoRef.current) return;
+      isSyncing.current = true;
+      videoRef.current.currentTime = initialTime;
+      if (initialPlaying) videoRef.current.play().catch(() => {});
+      setTimeout(() => { isSyncing.current = false; }, 500);
+    };
+    if (videoRef.current.readyState >= 1) apply();
+    else videoRef.current.addEventListener('loadedmetadata', apply, { once: true });
+  }, [initialTime, initialPlaying]);
+
+  // Fullscreen listener
+  useEffect(() => {
+    const onFS = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFS);
+    return () => document.removeEventListener('fullscreenchange', onFS);
   }, []);
 
   // Keyboard shortcuts
@@ -149,13 +148,13 @@ export default function VideoPlayer({
     const ct = videoRef.current.currentTime;
     if (videoRef.current.paused) {
       videoRef.current.play().catch(() => {});
-      socket?.emit('play', { roomId, currentTime: ct });
+      triggerEvent(roomId, 'play', { currentTime: ct });
     } else {
       videoRef.current.pause();
-      socket?.emit('pause', { roomId, currentTime: ct });
+      triggerEvent(roomId, 'pause', { currentTime: ct });
     }
     resetControlsTimer();
-  }, [socket, roomId, resetControlsTimer]);
+  }, [roomId, resetControlsTimer]);
 
   const toggleMute = useCallback(() => {
     if (!videoRef.current) return;
@@ -165,19 +164,16 @@ export default function VideoPlayer({
 
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
+    if (!document.fullscreenElement) containerRef.current.requestFullscreen();
+    else document.exitFullscreen();
   }, []);
 
   const skipBy = useCallback((seconds: number) => {
     if (!videoRef.current) return;
     const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
     videoRef.current.currentTime = newTime;
-    socket?.emit('seek', { roomId, currentTime: newTime });
-  }, [socket, roomId, duration]);
+    triggerEvent(roomId, 'seek', { currentTime: newTime });
+  }, [roomId, duration]);
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !videoRef.current) return;
@@ -185,9 +181,9 @@ export default function VideoPlayer({
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const newTime = ratio * duration;
     videoRef.current.currentTime = newTime;
-    socket?.emit('seek', { roomId, currentTime: newTime });
+    triggerEvent(roomId, 'seek', { currentTime: newTime });
     setCurrentTime(newTime);
-  }, [duration, socket, roomId]);
+  }, [duration, roomId]);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
@@ -205,11 +201,10 @@ export default function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={`relative bg-black group select-none ${isFullscreen ? 'w-screen h-screen' : 'w-full aspect-video'} overflow-hidden`}
+      className={`relative bg-black select-none ${isFullscreen ? 'w-screen h-screen' : 'w-full h-full'} overflow-hidden`}
       onMouseMove={resetControlsTimer}
       onMouseLeave={() => { if (isPlaying) setShowControls(false); }}
     >
-      {/* Video element */}
       <video
         ref={videoRef}
         src={videoUrl}
@@ -224,7 +219,7 @@ export default function VideoPlayer({
           if (v && v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
         }}
         onWaiting={() => setIsLoading(true)}
-        onCanPlay={() => { setIsLoading(false); onReady?.(); }}
+        onCanPlay={() => setIsLoading(false)}
         onLoadedMetadata={() => setIsLoading(false)}
         playsInline
         preload="metadata"
@@ -237,27 +232,23 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Sync indicator */}
+      {/* Sync flash */}
       {isSyncIndicator && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 bg-brand-red/90 rounded-full text-white text-xs font-semibold animate-fade-in pointer-events-none">
-          <Wifi size={12} />
-          Synced with party
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 bg-brand-red/90 rounded-full text-white text-xs font-semibold pointer-events-none animate-fade-in">
+          <Wifi size={12} /> Synced with party
         </div>
       )}
 
-      {/* Center play/pause flash */}
+      {/* Center play button when paused */}
       {!isPlaying && !isLoading && (
-        <div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          onClick={togglePlay}
-        >
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-20 h-20 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-sm">
             <Play size={32} className="text-white fill-white ml-1" />
           </div>
         </div>
       )}
 
-      {/* Controls overlay */}
+      {/* Controls */}
       <div
         className={`player-overlay absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${
           showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -265,18 +256,14 @@ export default function VideoPlayer({
       >
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 pt-4">
-          <div>
-            <p className="text-white font-semibold text-sm drop-shadow">{movieTitle}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {participants.length > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-xs text-white border border-white/15">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                <Users size={12} />
-                <span>{participants.length} watching</span>
-              </div>
-            )}
-          </div>
+          <p className="text-white font-semibold text-sm drop-shadow">{movieTitle}</p>
+          {participants.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-xs text-white border border-white/15">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <Users size={12} />
+              <span>{participants.length} watching</span>
+            </div>
+          )}
         </div>
 
         {/* Bottom controls */}
@@ -292,110 +279,51 @@ export default function VideoPlayer({
             aria-valuemin={0}
             aria-valuemax={100}
           >
-            {/* Buffered */}
-            <div
-              className="absolute top-0 left-0 h-full bg-white/20 rounded-full"
-              style={{ width: `${bufferedPct}%` }}
-            />
-            {/* Played */}
-            <div
-              className="absolute top-0 left-0 h-full bg-brand-red rounded-full transition-none"
-              style={{ width: `${progressPct}%` }}
-            />
-            {/* Thumb */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-brand-red rounded-full shadow-lg opacity-0 hover:opacity-100 transition-opacity"
-              style={{ left: `calc(${progressPct}% - 7px)` }}
-            />
+            <div className="absolute top-0 left-0 h-full bg-white/20 rounded-full" style={{ width: `${bufferedPct}%` }} />
+            <div className="absolute top-0 left-0 h-full bg-brand-red rounded-full" style={{ width: `${progressPct}%` }} />
           </div>
 
           {/* Controls row */}
           <div className="flex items-center justify-between gap-3">
-            {/* Left controls */}
             <div className="flex items-center gap-2">
-              {/* Skip back */}
-              <button
-                onClick={() => skipBy(-10)}
-                className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer"
-                aria-label="Rewind 10 seconds"
-              >
+              <button onClick={() => skipBy(-10)} className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer" aria-label="Rewind 10s">
                 <SkipBack size={20} strokeWidth={2} />
               </button>
-
-              {/* Play/Pause */}
               <button
                 onClick={togglePlay}
                 className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-[0.92] cursor-pointer"
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
-                {isPlaying
-                  ? <Pause size={22} className="fill-white" />
-                  : <Play size={22} className="fill-white ml-0.5" />
-                }
+                {isPlaying ? <Pause size={22} className="fill-white" /> : <Play size={22} className="fill-white ml-0.5" />}
               </button>
-
-              {/* Skip forward */}
-              <button
-                onClick={() => skipBy(10)}
-                className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer"
-                aria-label="Skip forward 10 seconds"
-              >
+              <button onClick={() => skipBy(10)} className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer" aria-label="Forward 10s">
                 <SkipForward size={20} strokeWidth={2} />
               </button>
 
               {/* Volume */}
               <div
-                className="flex items-center gap-2 relative"
+                className="flex items-center gap-2"
                 onMouseEnter={() => setShowVolumeSlider(true)}
                 onMouseLeave={() => setShowVolumeSlider(false)}
               >
-                <button
-                  onClick={toggleMute}
-                  className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer"
-                  aria-label={isMuted ? 'Unmute' : 'Mute'}
-                >
-                  {isMuted || volume === 0
-                    ? <VolumeX size={20} />
-                    : <Volume2 size={20} />
-                  }
+                <button onClick={toggleMute} className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer" aria-label={isMuted ? 'Unmute' : 'Mute'}>
+                  {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
                 </button>
-                <div
-                  className={`transition-all duration-200 overflow-hidden ${
-                    showVolumeSlider ? 'w-20 opacity-100' : 'w-0 opacity-0'
-                  }`}
-                >
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="w-full"
-                    aria-label="Volume"
-                  />
+                <div className={`transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-20 opacity-100' : 'w-0 opacity-0'}`}>
+                  <input type="range" min={0} max={1} step={0.05} value={isMuted ? 0 : volume} onChange={handleVolumeChange} className="w-full" aria-label="Volume" />
                 </div>
               </div>
 
-              {/* Time */}
               <span className="text-white/80 text-xs font-medium tabular-nums hidden sm:block">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
 
-            {/* Right controls */}
             <div className="flex items-center gap-1">
-              <button
-                className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer hidden sm:block"
-                aria-label="Settings"
-              >
+              <button className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer hidden sm:block" aria-label="Settings">
                 <Settings size={18} />
               </button>
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer"
-                aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              >
+              <button onClick={toggleFullscreen} className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
                 {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </button>
             </div>

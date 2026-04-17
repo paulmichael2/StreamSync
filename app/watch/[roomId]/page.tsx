@@ -6,25 +6,34 @@ import { Check, ArrowLeft, Link2, Film } from 'lucide-react';
 import VideoPlayer from '@/components/VideoPlayer';
 import ChatSidebar from '@/components/ChatSidebar';
 import { Movie, Participant } from '@/lib/types';
-import { getSocket, disconnectSocket } from '@/lib/socket';
-import { Socket } from 'socket.io-client';
+import { getPusherClient } from '@/lib/pusherClient';
 
-// Separated so useSearchParams is inside Suspense
+async function triggerEvent(roomId: string, event: string, data: Record<string, unknown>) {
+  await fetch('/api/pusher', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomId, event, data }),
+  });
+}
+
 function WatchPartyContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
+
   const roomId = params.roomId as string;
   const movieId = searchParams.get('movie') ?? '1';
   const username = searchParams.get('username') ?? 'Guest';
 
   const [movie, setMovie] = useState<Movie | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [initialTime, setInitialTime] = useState(0);
+  const [initialPlaying, setInitialPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
+  const clientId = useRef(crypto.randomUUID());
 
-  // Fetch movie data
+  // Fetch movie
   useEffect(() => {
     fetch('/api/movies')
       .then((r) => r.json())
@@ -35,35 +44,56 @@ function WatchPartyContent() {
       .catch(console.error);
   }, [movieId]);
 
-  // Connect to socket room
+  // Connect to room via Pusher + get initial sync state
   useEffect(() => {
-    // Always get a fresh connection
-    const sock = getSocket();
+    const id = clientId.current;
+    const pusher = getPusherClient();
+    const channel = pusher.subscribe(`room-${roomId}`);
 
-    // If socket is already connected, join immediately; otherwise wait for connect
-    const joinRoom = () => {
-      sock.emit('join-room', { roomId, username, movieId });
+    // Get current playback state from server so late joiners sync up
+    fetch(`/api/pusher?roomId=${roomId}`)
+      .then((r) => r.json())
+      .then((state) => {
+        if (state.currentTime > 0) {
+          setInitialTime(state.currentTime);
+          setInitialPlaying(state.isPlaying);
+        }
+      })
+      .catch(() => {});
+
+    // Track participants via join/leave events
+    const handleUserJoined = ({ id: uid, username: u }: { id: string; username: string }) => {
+      setParticipants((prev) => {
+        if (prev.find((p) => p.id === uid)) return prev;
+        return [...prev, { id: uid, username: u }];
+      });
     };
 
-    if (sock.connected) {
-      joinRoom();
-    } else {
-      sock.connect();
-      sock.once('connect', joinRoom);
-    }
-
-    const handleUsersUpdate = (users: Participant[]) => {
-      setParticipants(users);
+    const handleUserLeft = ({ id: uid }: { id: string }) => {
+      setParticipants((prev) => prev.filter((p) => p.id !== uid));
     };
 
-    sock.on('users-update', handleUsersUpdate);
-    setSocket(sock);
+    channel.bind('user-joined', handleUserJoined);
+    channel.bind('user-left', handleUserLeft);
+
+    // Announce our presence (small delay to ensure channel is subscribed)
+    const announceTimer = setTimeout(() => {
+      triggerEvent(roomId, 'user-joined', { id, username });
+      // Add ourselves to the local list immediately
+      setParticipants((prev) => {
+        if (prev.find((p) => p.id === id)) return prev;
+        return [...prev, { id, username }];
+      });
+    }, 300);
 
     return () => {
-      sock.off('users-update', handleUsersUpdate);
-      sock.off('connect', joinRoom);
+      clearTimeout(announceTimer);
+      channel.unbind('user-joined', handleUserJoined);
+      channel.unbind('user-left', handleUserLeft);
+      triggerEvent(roomId, 'user-left', { id, username });
+      setParticipants([]);
     };
-  }, [roomId, username, movieId]);
+  }, [roomId, username]);
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -87,7 +117,7 @@ function WatchPartyContent() {
           <button
             onClick={() => router.push('/')}
             className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
-            aria-label="Back to home"
+            aria-label="Back"
           >
             <ArrowLeft size={18} />
           </button>
@@ -101,29 +131,25 @@ function WatchPartyContent() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Participant avatars */}
+          {/* Avatars */}
           <div className="hidden sm:flex items-center -space-x-2">
             {participants.slice(0, 4).map((p, i) => (
               <div
                 key={p.id}
                 title={p.username}
                 className="w-7 h-7 rounded-full border-2 border-black flex items-center justify-center text-[10px] font-bold text-white"
-                style={{
-                  background: ['#E11D48', '#7C3AED', '#2563EB', '#059669'][i % 4],
-                  zIndex: 4 - i,
-                }}
+                style={{ background: ['#E11D48','#7C3AED','#2563EB','#059669'][i % 4], zIndex: 4 - i }}
               >
                 {p.username.charAt(0).toUpperCase()}
               </div>
             ))}
             {participants.length > 4 && (
-              <div className="w-7 h-7 rounded-full border-2 border-black bg-white/10 flex items-center justify-center text-[9px] text-white/70 z-0">
+              <div className="w-7 h-7 rounded-full border-2 border-black bg-white/10 flex items-center justify-center text-[9px] text-white/70">
                 +{participants.length - 4}
               </div>
             )}
           </div>
 
-          {/* Copy link */}
           <button
             onClick={copyLink}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-red/15 text-brand-red hover:bg-brand-red/25 transition-all text-xs font-semibold cursor-pointer"
@@ -132,38 +158,33 @@ function WatchPartyContent() {
             <span className="hidden sm:block">{copied ? 'Copied!' : 'Invite'}</span>
           </button>
 
-          {/* Toggle chat */}
           <button
             onClick={() => setChatOpen((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              chatOpen
-                ? 'bg-white/10 text-white'
-                : 'bg-white/5 text-white/50 hover:text-white hover:bg-white/10'
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${chatOpen ? 'bg-white/10 text-white' : 'bg-white/5 text-white/50 hover:text-white'}`}
           >
             {chatOpen ? 'Hide Chat' : 'Show Chat'}
           </button>
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main layout */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Video area */}
+        {/* Video */}
         <div className="flex-1 flex items-stretch bg-black min-w-0">
           <VideoPlayer
             videoUrl={movie.videoUrl}
             movieTitle={movie.title}
             roomId={roomId}
-            socket={socket}
             participants={participants}
+            initialTime={initialTime}
+            initialPlaying={initialPlaying}
           />
         </div>
 
-        {/* Chat sidebar — desktop */}
+        {/* Chat — desktop */}
         {chatOpen && (
           <div className="flex-shrink-0 w-72 xl:w-80 h-full hidden sm:flex flex-col">
             <ChatSidebar
-              socket={socket}
               roomId={roomId}
               username={username}
               participants={participants}
@@ -172,10 +193,9 @@ function WatchPartyContent() {
         )}
       </div>
 
-      {/* Chat — mobile (bottom strip) */}
+      {/* Chat — mobile */}
       <div className="sm:hidden flex-shrink-0 h-64 border-t border-white/[0.08]">
         <ChatSidebar
-          socket={socket}
           roomId={roomId}
           username={username}
           participants={participants}
@@ -185,7 +205,6 @@ function WatchPartyContent() {
   );
 }
 
-// Page wraps content in Suspense (required by Next.js 14 for useSearchParams)
 export default function WatchPage() {
   return (
     <Suspense
