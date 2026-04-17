@@ -201,18 +201,18 @@ export default function RoomsPage() {
 
   useEffect(() => { fetchRooms(); }, [fetchRooms]);
 
-  // Real-time via Pusher global 'rooms' channel
+  // Real-time via Pusher — re-fetch from server when any room changes
   useEffect(() => {
     const pusher  = getPusherClient();
     const channel = pusher.subscribe('rooms');
-    channel.bind('rooms-updated', ({ rooms: updated }: { rooms: ActiveRoom[] }) => {
-      setRooms(updated);
+    channel.bind('rooms-updated', () => {
+      fetchRooms();
     });
     return () => {
       channel.unbind('rooms-updated');
       pusher.unsubscribe('rooms');
     };
-  }, []);
+  }, [fetchRooms]);
 
   const getMovie = (movieId: string) => movies.find((m) => m.id === movieId) ?? null;
 
