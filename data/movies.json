@@ -1,114 +1,52 @@
 [
   {
-    "id": "1",
-    "title": "Big Buck Bunny",
-    "description": "A large and lovable rabbit deals with bullying by three tiny rodents who steal a butterfly he befriends. But this time, the rabbit fights back with an elaborate plan of comical revenge.",
-    "genre": "Animation",
-    "genres": ["Animation", "Comedy", "Family"],
-    "year": 2008,
-    "rating": 8.2,
-    "thumbnail": "https://picsum.photos/seed/bigbuck/400/600",
-    "backdrop": "https://picsum.photos/seed/bigbuck-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    "duration": "9:56",
-    "featured": true
-  },
-  {
-    "id": "2",
-    "title": "Elephant Dream",
-    "description": "Two strange characters explore a mechanical, rotary world. A poetic and surreal short film that marked the dawn of open-source filmmaking.",
-    "genre": "Animation",
-    "genres": ["Animation", "Sci-Fi", "Drama"],
-    "year": 2006,
-    "rating": 7.1,
-    "thumbnail": "https://picsum.photos/seed/elephant/400/600",
-    "backdrop": "https://picsum.photos/seed/elephant-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantDream.mp4",
-    "duration": "10:54",
-    "featured": false
-  },
-  {
-    "id": "3",
-    "title": "For Bigger Blazes",
-    "description": "HBO GO is now available. Life is full of epic moments. Don't miss them. Stream your favorite shows anywhere, anytime.",
-    "genre": "Action",
-    "genres": ["Action", "Thriller"],
-    "year": 2013,
-    "rating": 7.8,
-    "thumbnail": "https://picsum.photos/seed/blazes/400/600",
-    "backdrop": "https://picsum.photos/seed/blazes-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    "duration": "0:15",
-    "featured": false
-  },
-  {
-    "id": "4",
-    "title": "For Bigger Escapes",
-    "description": "Introducing HBO GO on Android. Watch HBO wherever you are. The best TV, always with you. Epic escapes await.",
-    "genre": "Drama",
-    "genres": ["Drama", "Thriller"],
-    "year": 2013,
-    "rating": 7.5,
-    "thumbnail": "https://picsum.photos/seed/escapes/400/600",
-    "backdrop": "https://picsum.photos/seed/escapes-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    "duration": "0:15",
-    "featured": false
-  },
-  {
-    "id": "5",
-    "title": "For Bigger Fun",
-    "description": "Live life on the edge. HBO GO lets you watch your favorite shows wherever the action takes you. Every moment matters.",
-    "genre": "Comedy",
-    "genres": ["Comedy", "Adventure"],
-    "year": 2013,
-    "rating": 6.9,
-    "thumbnail": "https://picsum.photos/seed/fun/400/600",
-    "backdrop": "https://picsum.photos/seed/fun-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-    "duration": "0:15",
-    "featured": false
-  },
-  {
-    "id": "6",
-    "title": "For Bigger Joyrides",
-    "description": "A cinematic thrill ride for those who demand the best. Experience the freedom of watching your favorite content on the go.",
-    "genre": "Action",
-    "genres": ["Action", "Adventure"],
-    "year": 2013,
-    "rating": 7.3,
-    "thumbnail": "https://picsum.photos/seed/joyride/400/600",
-    "backdrop": "https://picsum.photos/seed/joyride-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-    "duration": "0:15",
-    "featured": false
-  },
-  {
-    "id": "7",
-    "title": "Subaru Outback",
-    "description": "Adventure awaits in every direction. The Subaru Outback — go where life takes you. Built for those who never settle.",
-    "genre": "Documentary",
-    "genres": ["Documentary", "Adventure"],
-    "year": 2014,
-    "rating": 6.5,
-    "thumbnail": "https://picsum.photos/seed/subaru/400/600",
-    "backdrop": "https://picsum.photos/seed/subaru-wide/1920/1080",
-    "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-    "duration": "0:56",
-    "featured": false
-  },
-  {
     "id": "8",
     "title": "Tears of Steel",
     "description": "In a post-apocalyptic Amsterdam, a group of warriors and scientists struggle to prevent machines from taking over the world. A Blender Institute masterpiece.",
     "genre": "Sci-Fi",
-    "genres": ["Sci-Fi", "Action", "Drama"],
+    "genres": [
+      "Sci-Fi",
+      "Action",
+      "Drama"
+    ],
     "year": 2012,
     "rating": 8.5,
     "thumbnail": "https://picsum.photos/seed/tears/400/600",
     "backdrop": "https://picsum.photos/seed/tears-wide/1920/1080",
     "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
     "duration": "12:14",
+    "featured": false
+  },
+  {
+    "id": "1776443248270",
+    "title": "IronMan 1",
+    "description": "Ironman",
+    "genre": "Action",
+    "genres": [
+      "Action"
+    ],
+    "year": 2026,
+    "rating": 7,
+    "thumbnail": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
+    "backdrop": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
+    "videoUrl": "https://github.com/paulmichael2/StreamSync/releases/download/untagged-c4975b904f93f2a08e74/Iron.Man-1080P.mp4",
+    "duration": "N/A",
+    "featured": false
+  },
+  {
+    "id": "1776443649506",
+    "title": "Test",
+    "description": "Test",
+    "genre": "Action",
+    "genres": [
+      "Action"
+    ],
+    "year": 2026,
+    "rating": 7,
+    "thumbnail": "https://archive.org/download/invite-bug/InviteBug.mp4",
+    "backdrop": "https://archive.org/download/invite-bug/InviteBug.mp4",
+    "videoUrl": "https://archive.org/download/invite-bug/InviteBug.mp4",
+    "duration": "N/A",
     "featured": false
   }
 ]

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Send, MessageCircle, Users, X, Wifi } from 'lucide-react';
+import { Send, MessageCircle, Users, Wifi } from 'lucide-react';
 import { Socket } from 'socket.io-client';
 import { ChatMessage, Participant } from '@/lib/types';
 

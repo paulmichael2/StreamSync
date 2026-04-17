@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, Film, Star, Clock, ArrowLeft,
-  CheckCircle, AlertCircle, Loader2, Upload, ExternalLink
+  CheckCircle, AlertCircle, Loader2, ExternalLink
 } from 'lucide-react';
 import { Movie } from '@/lib/types';
 
@@ -380,7 +380,7 @@ export default function AdminPage() {
                   {/* Actions */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <a
-                      href={`/watch/${crypto.randomUUID()}?movie=${movie.id}&username=Admin`}
+                      href={`/watch/preview-${movie.id}?movie=${movie.id}&username=Admin`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-all cursor-pointer"

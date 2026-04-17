@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { Copy, Check, ArrowLeft, Link2, Film } from 'lucide-react';
+import { Check, ArrowLeft, Link2, Film } from 'lucide-react';
 import VideoPlayer from '@/components/VideoPlayer';
 import ChatSidebar from '@/components/ChatSidebar';
-import { Movie, Participant, ChatMessage } from '@/lib/types';
-import { getSocket } from '@/lib/socket';
+import { Movie, Participant } from '@/lib/types';
+import { getSocket, disconnectSocket } from '@/lib/socket';
 import { Socket } from 'socket.io-client';
 
-export default function WatchPage() {
+// Separated so useSearchParams is inside Suspense
+function WatchPartyContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -22,9 +23,8 @@ export default function WatchPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [copied, setCopied] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
-  const socketRef = useRef<Socket | null>(null);
 
-  // Fetch movie
+  // Fetch movie data
   useEffect(() => {
     fetch('/api/movies')
       .then((r) => r.json())
@@ -35,21 +35,33 @@ export default function WatchPage() {
       .catch(console.error);
   }, [movieId]);
 
-  // Connect socket
+  // Connect to socket room
   useEffect(() => {
+    // Always get a fresh connection
     const sock = getSocket();
-    socketRef.current = sock;
+
+    // If socket is already connected, join immediately; otherwise wait for connect
+    const joinRoom = () => {
+      sock.emit('join-room', { roomId, username, movieId });
+    };
+
+    if (sock.connected) {
+      joinRoom();
+    } else {
+      sock.connect();
+      sock.once('connect', joinRoom);
+    }
+
+    const handleUsersUpdate = (users: Participant[]) => {
+      setParticipants(users);
+    };
+
+    sock.on('users-update', handleUsersUpdate);
     setSocket(sock);
 
-    sock.emit('join-room', { roomId, username, movieId });
-
-    sock.on('users-update', (users: Participant[]) => {
-      setParticipants(users);
-    });
-
     return () => {
-      sock.off('users-update');
-      sock.emit('leave-room', { roomId });
+      sock.off('users-update', handleUsersUpdate);
+      sock.off('connect', joinRoom);
     };
   }, [roomId, username, movieId]);
 
@@ -70,7 +82,7 @@ export default function WatchPage() {
   return (
     <div className="h-screen bg-black flex flex-col overflow-hidden">
       {/* Top bar */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0a0a] border-b border-white/8">
+      <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0a0a] border-b border-white/[0.08]">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/')}
@@ -97,7 +109,7 @@ export default function WatchPage() {
                 title={p.username}
                 className="w-7 h-7 rounded-full border-2 border-black flex items-center justify-center text-[10px] font-bold text-white"
                 style={{
-                  background: ['#E11D48','#7C3AED','#2563EB','#059669'][i % 4],
+                  background: ['#E11D48', '#7C3AED', '#2563EB', '#059669'][i % 4],
                   zIndex: 4 - i,
                 }}
               >
@@ -137,19 +149,17 @@ export default function WatchPage() {
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Video area */}
-        <div className="flex-1 flex items-center justify-center bg-black min-w-0">
-          <div className="w-full h-full">
-            <VideoPlayer
-              videoUrl={movie.videoUrl}
-              movieTitle={movie.title}
-              roomId={roomId}
-              socket={socket}
-              participants={participants}
-            />
-          </div>
+        <div className="flex-1 flex items-stretch bg-black min-w-0">
+          <VideoPlayer
+            videoUrl={movie.videoUrl}
+            movieTitle={movie.title}
+            roomId={roomId}
+            socket={socket}
+            participants={participants}
+          />
         </div>
 
-        {/* Chat sidebar */}
+        {/* Chat sidebar — desktop */}
         {chatOpen && (
           <div className="flex-shrink-0 w-72 xl:w-80 h-full hidden sm:flex flex-col">
             <ChatSidebar
@@ -162,8 +172,8 @@ export default function WatchPage() {
         )}
       </div>
 
-      {/* Mobile chat (bottom sheet) */}
-      <div className="sm:hidden flex-shrink-0 border-t border-white/8">
+      {/* Chat — mobile (bottom strip) */}
+      <div className="sm:hidden flex-shrink-0 h-64 border-t border-white/[0.08]">
         <ChatSidebar
           socket={socket}
           roomId={roomId}
@@ -172,5 +182,20 @@ export default function WatchPage() {
         />
       </div>
     </div>
+  );
+}
+
+// Page wraps content in Suspense (required by Next.js 14 for useSearchParams)
+export default function WatchPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-black flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-white/20 border-t-brand-red rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <WatchPartyContent />
+    </Suspense>
   );
 }
