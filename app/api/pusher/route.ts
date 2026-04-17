@@ -46,11 +46,15 @@ export async function POST(req: NextRequest) {
 
       if (hasSupabase) {
         const { supabase } = await import('@/lib/supabase');
-        const { error } = await supabase.from('room_sessions').upsert(
+        // Upsert session
+        const { error: e1 } = await supabase.from('room_sessions').upsert(
           { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString() },
           { onConflict: 'user_id,room_id' }
         );
-        if (error) console.error('[room_sessions upsert]', JSON.stringify(error));
+        if (e1) console.error('[room_sessions upsert]', JSON.stringify(e1));
+
+        // Cancel any pending closing record — room is alive again
+        await supabase.from('room_closings').delete().eq('room_id', roomId);
       }
       break;
 
@@ -60,14 +64,30 @@ export async function POST(req: NextRequest) {
 
       if (hasSupabase) {
         const { supabase } = await import('@/lib/supabase');
-        const { error } = await supabase.from('room_sessions').delete()
+
+        const { error: e2 } = await supabase.from('room_sessions').delete()
           .eq('user_id', data.id).eq('room_id', roomId);
-        if (error) console.error('[room_sessions delete]', error.message);
+        if (e2) console.error('[room_sessions delete]', JSON.stringify(e2));
+
+        // Check if room is now empty
+        const { count } = await supabase
+          .from('room_sessions')
+          .select('*', { count: 'exact', head: true })
+          .eq('room_id', roomId);
+
+        if ((count ?? 0) === 0) {
+          // Start 2-minute grace period before room disappears
+          const { error: e3 } = await supabase.from('room_closings').upsert(
+            { room_id: roomId, movie_id: room.movieId || '', closed_at: new Date().toISOString() },
+            { onConflict: 'room_id' }
+          );
+          if (e3) console.error('[room_closings upsert]', JSON.stringify(e3));
+        }
       }
       break;
   }
 
-  // Broadcast rooms update so /rooms page stays in sync
+  // Broadcast rooms update
   if (event === 'user-joined' || event === 'user-left') {
     pusherServer.trigger('rooms', 'rooms-updated', {}).catch(() => {});
   }
