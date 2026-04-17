@@ -180,6 +180,12 @@ export default function RoomsPage() {
 
   useEffect(() => { fetchRooms(); }, [fetchRooms]);
 
+  // Polling fallback — re-fetch every 15 s in case a Pusher event is missed
+  useEffect(() => {
+    const t = setInterval(() => fetchRooms(), 15_000);
+    return () => clearInterval(t);
+  }, [fetchRooms]);
+
   // Real-time via Pusher
   useEffect(() => {
     const pusher  = getPusherClient();

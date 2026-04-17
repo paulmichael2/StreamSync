@@ -101,6 +101,11 @@ function WatchPartyContent() {
       });
     }, 300);
 
+    // Keepalive: refresh updated_at in Supabase every 4 minutes so sessions don't get cleaned up
+    const keepaliveInterval = setInterval(() => {
+      triggerEvent(roomId, 'keepalive', { id, username });
+    }, 4 * 60 * 1000);
+
     // Use sendBeacon for leave so it fires even when the tab is closed
     const sendLeave = () => {
       const payload = JSON.stringify({ roomId, event: 'user-left', data: { id, username } });
@@ -116,6 +121,7 @@ function WatchPartyContent() {
 
     return () => {
       clearTimeout(announceTimer);
+      clearInterval(keepaliveInterval);
       window.removeEventListener('beforeunload', sendLeave);
       channel.unbind('user-joined', handleUserJoined);
       channel.unbind('user-left', handleUserLeft);

@@ -12,7 +12,7 @@ export async function GET() {
     const { supabase } = await import('@/lib/supabase');
 
     const now      = new Date();
-    const staleAt  = new Date(now.getTime() - 10 * 60 * 1000).toISOString(); // 10-min crash cleanup
+    const staleAt  = new Date(now.getTime() - 8 * 60 * 60 * 1000).toISOString(); // 8-hour crash cleanup
     const graceAt  = new Date(now.getTime() - GRACE_MS).toISOString();        // 2-min grace cutoff
 
     // Clean truly stale sessions and expired closing records in parallel

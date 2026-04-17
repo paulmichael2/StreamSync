@@ -58,6 +58,18 @@ export async function POST(req: NextRequest) {
       }
       break;
 
+    case 'keepalive':
+      // Refresh updated_at so the session doesn't get cleaned up as stale
+      room.updatedAt = Date.now();
+      if (hasSupabase) {
+        const { supabase } = await import('@/lib/supabase');
+        await supabase.from('room_sessions')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('user_id', data.id).eq('room_id', roomId);
+      }
+      await pusherServer.trigger(`room-${roomId}`, event, data);
+      return NextResponse.json({ success: true });
+
     case 'user-left':
       room.users = room.users.filter((u) => u.id !== data.id);
       room.updatedAt = Date.now();
@@ -89,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   // Broadcast rooms update
   if (event === 'user-joined' || event === 'user-left') {
-    pusherServer.trigger('rooms', 'rooms-updated', {}).catch(() => {});
+    await pusherServer.trigger('rooms', 'rooms-updated', {});
   }
 
   await pusherServer.trigger(`room-${roomId}`, event, data);
