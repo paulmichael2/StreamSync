@@ -182,7 +182,7 @@ export default function RoomsPage() {
 
   // Polling fallback — re-fetch every 15 s in case a Pusher event is missed
   useEffect(() => {
-    const t = setInterval(() => fetchRooms(), 15_000);
+    const t = setInterval(() => fetchRooms(), 5_000);
     return () => clearInterval(t);
   }, [fetchRooms]);
 

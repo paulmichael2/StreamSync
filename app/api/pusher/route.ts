@@ -67,7 +67,6 @@ export async function POST(req: NextRequest) {
           .update({ updated_at: new Date().toISOString() })
           .eq('user_id', data.id).eq('room_id', roomId);
       }
-      await pusherServer.trigger(`room-${roomId}`, event, data);
       return NextResponse.json({ success: true });
 
     case 'user-left':
@@ -99,9 +98,11 @@ export async function POST(req: NextRequest) {
       break;
   }
 
-  // Broadcast rooms update
+  // Broadcast rooms update — non-fatal, must not block room-specific event
   if (event === 'user-joined' || event === 'user-left') {
-    await pusherServer.trigger('rooms', 'rooms-updated', {});
+    pusherServer.trigger('rooms', 'rooms-updated', {}).catch((err) =>
+      console.error('[rooms-updated trigger]', String(err))
+    );
   }
 
   await pusherServer.trigger(`room-${roomId}`, event, data);
