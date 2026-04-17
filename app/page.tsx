@@ -2,31 +2,13 @@ import { Movie } from '@/lib/types';
 import Navbar from '@/components/Navbar';
 import HeroSection from '@/components/HeroSection';
 import MovieRow from '@/components/MovieRow';
-import { supabase } from '@/lib/supabase';
 
 async function getMovies(): Promise<Movie[]> {
   try {
-    const { data, error } = await supabase
-      .from('movies')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (error || !data) return [];
-
-    return data.map((row) => ({
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      genre: row.genre,
-      genres: row.genres,
-      year: row.year,
-      rating: row.rating,
-      thumbnail: row.thumbnail,
-      backdrop: row.backdrop,
-      videoUrl: row.video_url,
-      duration: row.duration,
-      featured: row.featured,
-    }));
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    const res = await fetch(`${base}/api/movies`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return res.json();
   } catch {
     return [];
   }
