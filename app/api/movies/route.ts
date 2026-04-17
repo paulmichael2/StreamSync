@@ -33,6 +33,7 @@ function toMovie(row: any): Movie {
     videoUrl: row.video_url ?? row.videoUrl ?? '',
     duration: row.duration ?? 'N/A',
     featured: row.featured ?? false,
+    subtitleUrl: row.subtitle_url ?? row.subtitleUrl ?? '',
   };
 }
 
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
     video_url: body.videoUrl,          // snake_case for DB
     duration: body.duration ?? 'N/A',
     featured: body.featured ?? false,
+    subtitle_url: body.subtitleUrl ?? '',
   };
 
   if (hasSupabase) {
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
 
   // Local fallback — store as camelCase in JSON
   const movies = readLocal();
-  const newMovie: Movie = { ...row, videoUrl: row.video_url };
+  const newMovie: Movie = { ...row, videoUrl: row.video_url, subtitleUrl: row.subtitle_url };
   movies.push(newMovie);
   writeLocal(movies);
   return NextResponse.json(newMovie, { status: 201 });

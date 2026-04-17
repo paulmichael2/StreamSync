@@ -11,6 +11,7 @@ export interface Movie {
   videoUrl: string;
   duration: string;
   featured: boolean;
+  subtitleUrl?: string;
 }
 
 export interface ChatMessage {

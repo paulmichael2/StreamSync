@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'StreamSync — Watch Together',
+  title: 'HeartSync — Watch Together',
   description: 'A synchronized streaming platform. Watch movies together in real-time with friends.',
 };
 

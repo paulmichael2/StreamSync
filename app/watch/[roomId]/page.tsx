@@ -58,13 +58,23 @@ function WatchPartyContent() {
     const pusher = getPusherClient();
     const channel = pusher.subscribe(`room-${roomId}`);
 
-    // Get current playback state so late joiners sync up
+    // Get current playback state + existing participants so late joiners sync up
     fetch(`/api/pusher?roomId=${roomId}`)
       .then((r) => r.json())
       .then((state) => {
         if (state.currentTime > 0) {
           setInitialTime(state.currentTime);
           setInitialPlaying(state.isPlaying);
+        }
+        // Populate participants with whoever is already in the room (excluding self)
+        if (Array.isArray(state.users) && state.users.length > 0) {
+          setParticipants(
+            state.users
+              .filter((u: { id: string; username: string }) => u.id !== id)
+              .filter((u: { id: string }, idx: number, arr: { id: string }[]) =>
+                arr.findIndex((x) => x.id === u.id) === idx
+              )
+          );
         }
       })
       .catch(() => {});
@@ -84,18 +94,33 @@ function WatchPartyContent() {
     channel.bind('user-left', handleUserLeft);
 
     const announceTimer = setTimeout(() => {
-      triggerEvent(roomId, 'user-joined', { id, username });
+      triggerEvent(roomId, 'user-joined', { id, username, movieId });
       setParticipants((prev) => {
         if (prev.find((p) => p.id === id)) return prev;
         return [...prev, { id, username }];
       });
     }, 300);
 
+    // Use sendBeacon for leave so it fires even when the tab is closed
+    const sendLeave = () => {
+      const payload = JSON.stringify({ roomId, event: 'user-left', data: { id, username } });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/pusher', new Blob([payload], { type: 'application/json' }));
+      } else {
+        triggerEvent(roomId, 'user-left', { id, username });
+      }
+    };
+
+    // Fire leave when the tab/window is closed or refreshed
+    window.addEventListener('beforeunload', sendLeave);
+
     return () => {
       clearTimeout(announceTimer);
+      window.removeEventListener('beforeunload', sendLeave);
       channel.unbind('user-joined', handleUserJoined);
       channel.unbind('user-left', handleUserLeft);
-      triggerEvent(roomId, 'user-left', { id, username });
+      sendLeave();
+      pusher.unsubscribe(`room-${roomId}`);
       setParticipants([]);
     };
   }, [roomId, username, hasJoined]);
@@ -210,6 +235,7 @@ function WatchPartyContent() {
               participants={participants}
               initialTime={initialTime}
               initialPlaying={initialPlaying}
+              subtitleUrl={movie.subtitleUrl}
             />
           </div>
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Play, Search, Bell, User, Menu, X, Film, Shield } from 'lucide-react';
+import { Search, Bell, Menu, X, Shield, Radio } from 'lucide-react';
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -26,11 +26,19 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-            <div className="w-8 h-8 bg-brand-red rounded-md flex items-center justify-center">
-              <Play size={16} className="text-white fill-white ml-0.5" />
-            </div>
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="heartGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#FF3CAC" />
+                  <stop offset="50%" stopColor="#784BA0" />
+                  <stop offset="100%" stopColor="#2B86C5" />
+                </linearGradient>
+              </defs>
+              <path d="M16 27C16 27 4 19.5 4 11.5C4 8.42 6.42 6 9.5 6C11.74 6 13.68 7.28 14.72 9.1L16 11.5L17.28 9.1C18.32 7.28 20.26 6 22.5 6C25.58 6 28 8.42 28 11.5C28 19.5 16 27 16 27Z" fill="url(#heartGrad)" />
+              <path d="M13 16L15.5 19L19.5 13" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+            </svg>
             <span className="text-xl font-bold tracking-tight text-white">
-              Stream<span className="text-brand-red">Sync</span>
+              Heart<span style={{ background: 'linear-gradient(90deg,#FF3CAC,#784BA0,#2B86C5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Sync</span>
             </span>
           </Link>
 
@@ -59,6 +67,13 @@ export default function Navbar() {
               className="text-white/60 hover:text-white transition-colors"
             >
               New & Popular
+            </Link>
+            <Link
+              href="/rooms"
+              className={`flex items-center gap-1.5 transition-colors hover:text-white ${pathname === '/rooms' ? 'text-white' : 'text-white/60'}`}
+            >
+              <Radio size={13} className="text-brand-red" />
+              Live Rooms
             </Link>
           </nav>
 
@@ -113,6 +128,9 @@ export default function Navbar() {
             </Link>
             <Link href="/?genre=Animation" className="text-white/60 hover:text-white py-2" onClick={() => setMenuOpen(false)}>
               New & Popular
+            </Link>
+            <Link href="/rooms" className="flex items-center gap-2 text-white/60 hover:text-white py-2" onClick={() => setMenuOpen(false)}>
+              <Radio size={16} className="text-brand-red" /> Live Rooms
             </Link>
             <Link href="/admin" className="flex items-center gap-2 text-white/60 hover:text-white py-2" onClick={() => setMenuOpen(false)}>
               <Shield size={16} /> Admin

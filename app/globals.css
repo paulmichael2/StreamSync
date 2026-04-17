@@ -152,6 +152,16 @@ input[type='range']:hover::-webkit-slider-thumb {
   );
 }
 
+/* Center tap flash animation */
+@keyframes ping-once {
+  0%   { transform: scale(1);    opacity: 1; }
+  60%  { transform: scale(1.25); opacity: 0.7; }
+  100% { transform: scale(1.5);  opacity: 0; }
+}
+.animate-ping-once {
+  animation: ping-once 0.45s ease-out forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

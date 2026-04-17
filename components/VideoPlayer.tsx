@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  SkipBack, SkipForward, Settings, Users, Wifi
+  SkipBack, SkipForward, Settings, Users, Wifi, ChevronLeft, Check,
 } from 'lucide-react';
 import { getPusherClient } from '@/lib/pusherClient';
 import { Participant } from '@/lib/types';
@@ -15,7 +15,23 @@ interface VideoPlayerProps {
   participants: Participant[];
   initialTime?: number;
   initialPlaying?: boolean;
+  subtitleUrl?: string;
 }
+
+const SPEEDS = [
+  { value: 0.5, label: '0.5' },
+  { value: 0.8, label: '0.8' },
+  { value: 1,   label: 'Normal' },
+  { value: 1.3, label: '1.3' },
+  { value: 1.5, label: '1.5' },
+  { value: 2,   label: '2.0' },
+];
+
+const SUBTITLE_SIZES = [
+  { value: 'small',  label: 'Small',  cls: 'text-sm' },
+  { value: 'medium', label: 'Medium', cls: 'text-lg' },
+  { value: 'large',  label: 'Large',  cls: 'text-2xl' },
+] as const;
 
 function formatTime(s: number): string {
   if (isNaN(s) || !isFinite(s)) return '0:00';
@@ -35,25 +51,42 @@ async function triggerEvent(roomId: string, event: string, data: Record<string, 
 }
 
 export default function VideoPlayer({
-  videoUrl, movieTitle, roomId, participants, initialTime = 0, initialPlaying = false,
+  videoUrl, movieTitle, roomId, participants,
+  initialTime = 0, initialPlaying = false, subtitleUrl = '',
 }: VideoPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const progressRef = useRef<HTMLDivElement>(null);
-  const isSyncing = useRef(false);
+  const videoRef      = useRef<HTMLVideoElement>(null);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const progressRef   = useRef<HTMLDivElement>(null);
+  const isSyncing     = useRef(false);
   const controlsTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [buffered, setBuffered] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPlaying,       setIsPlaying]       = useState(false);
+  const [currentTime,     setCurrentTime]     = useState(0);
+  const [duration,        setDuration]        = useState(0);
+  const [buffered,        setBuffered]        = useState(0);
+  const [volume,          setVolume]          = useState(1);
+  const [isMuted,         setIsMuted]         = useState(false);
+  const [showControls,    setShowControls]    = useState(true);
+  const [isFullscreen,    setIsFullscreen]    = useState(false);
   const [isSyncIndicator, setIsSyncIndicator] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [isLoading,       setIsLoading]       = useState(true);
+  const [showVolumeSlider,setShowVolumeSlider]= useState(false);
+
+  // Settings panel
+  const [showSettings,  setShowSettings]  = useState(false);
+  const [settingsView,  setSettingsView]  = useState<'main' | 'speed' | 'subtitle'>('main');
+  const [playbackRate,  setPlaybackRate]  = useState(1);
+
+  // Subtitle state
+  const [subtitlesOn,      setSubtitlesOn]      = useState(true);
+  const [activeCueText,    setActiveCueText]    = useState('');
+  const [subtitleSize,     setSubtitleSize]     = useState<'small' | 'medium' | 'large'>('medium');
+  const [subtitlePosition, setSubtitlePosition] = useState<'bottom' | 'top'>('bottom');
+  const [centerFlash,      setCenterFlash]      = useState<'play' | 'pause' | null>(null);
+
+  const trackSrc = subtitleUrl ? `/api/subtitle?url=${encodeURIComponent(subtitleUrl)}` : null;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
 
   const flashSync = useCallback(() => {
     setIsSyncIndicator(true);
@@ -68,9 +101,52 @@ export default function VideoPlayer({
     }, 3000);
   }, []);
 
-  // Subscribe to Pusher channel for remote sync events
+  // ── subtitle cue tracking (custom renderer for size/position control) ────
+
   useEffect(() => {
-    const pusher = getPusherClient();
+    const video = videoRef.current;
+    if (!video || !trackSrc) return;
+
+    const bindTrack = () => {
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        // 'hidden' = browser tracks cues but doesn't render — we render manually
+        track.mode = subtitlesOn ? 'hidden' : 'disabled';
+        track.oncuechange = () => {
+          if (!subtitlesOn || !track.activeCues || track.activeCues.length === 0) {
+            setActiveCueText('');
+            return;
+          }
+          const cue = track.activeCues[0] as VTTCue;
+          // Strip any inline HTML tags from the cue text
+          setActiveCueText(cue.text.replace(/<[^>]+>/g, '').trim());
+        };
+      }
+    };
+
+    bindTrack();
+    video.textTracks.addEventListener('addtrack', bindTrack);
+    return () => {
+      video.textTracks.removeEventListener('addtrack', bindTrack);
+      setActiveCueText('');
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackSrc]);
+
+  // Toggle track mode without re-binding handlers
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    for (let i = 0; i < video.textTracks.length; i++) {
+      video.textTracks[i].mode = subtitlesOn ? 'hidden' : 'disabled';
+    }
+    if (!subtitlesOn) setActiveCueText('');
+  }, [subtitlesOn]);
+
+  // ── Pusher sync ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const pusher  = getPusherClient();
     const channel = pusher.subscribe(`room-${roomId}`);
 
     channel.bind('play', ({ currentTime: ct }: { currentTime: number }) => {
@@ -108,7 +184,8 @@ export default function VideoPlayer({
     };
   }, [roomId, flashSync]);
 
-  // Apply initial sync state once video is ready
+  // ── initial sync ─────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!videoRef.current || initialTime === 0) return;
     const apply = () => {
@@ -122,50 +199,58 @@ export default function VideoPlayer({
     else videoRef.current.addEventListener('loadedmetadata', apply, { once: true });
   }, [initialTime, initialPlaying]);
 
-  // Fullscreen listener — handle all vendor prefixes + iOS native video fullscreen
+  // ── fullscreen ───────────────────────────────────────────────────────────
+
   useEffect(() => {
     const onFS = () => {
       const el = document.fullscreenElement ||
         (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement;
       setIsFullscreen(!!el);
     };
-    const onIOSFS = () => setIsFullscreen(false); // iOS exits fullscreen via native player
-
     document.addEventListener('fullscreenchange', onFS);
     document.addEventListener('webkitfullscreenchange', onFS);
     videoRef.current?.addEventListener('webkitbeginfullscreen', () => setIsFullscreen(true));
-    videoRef.current?.addEventListener('webkitendfullscreen', onIOSFS);
-
+    videoRef.current?.addEventListener('webkitendfullscreen', () => setIsFullscreen(false));
     return () => {
       document.removeEventListener('fullscreenchange', onFS);
       document.removeEventListener('webkitfullscreenchange', onFS);
-      videoRef.current?.removeEventListener('webkitendfullscreen', onIOSFS);
     };
   }, []);
 
-  // Keyboard shortcuts
+  // Close settings when controls hide
+  useEffect(() => {
+    if (!showControls) setShowSettings(false);
+  }, [showControls]);
+
+  // ── keyboard shortcuts ───────────────────────────────────────────────────
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
-      if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
+      if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(false); }
       if (e.key === 'f') toggleFullscreen();
       if (e.key === 'm') toggleMute();
-      if (e.key === 'ArrowLeft') skipBy(-10);
+      if (e.key === 'ArrowLeft')  skipBy(-10);
       if (e.key === 'ArrowRight') skipBy(10);
+      if (e.key === 'Escape') setShowSettings(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const togglePlay = useCallback(() => {
+  // ── controls ─────────────────────────────────────────────────────────────
+
+  const togglePlay = useCallback((showFlash = false) => {
     if (!videoRef.current || isSyncing.current) return;
     const ct = videoRef.current.currentTime;
     if (videoRef.current.paused) {
       videoRef.current.play().catch(() => {});
       triggerEvent(roomId, 'play', { currentTime: ct });
+      if (showFlash) { setCenterFlash('play');  setTimeout(() => setCenterFlash(null), 500); }
     } else {
       videoRef.current.pause();
       triggerEvent(roomId, 'pause', { currentTime: ct });
+      if (showFlash) { setCenterFlash('pause'); setTimeout(() => setCenterFlash(null), 500); }
     }
     resetControlsTimer();
   }, [roomId, resetControlsTimer]);
@@ -177,30 +262,19 @@ export default function VideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(() => {
-    const video = videoRef.current;
+    const video     = videoRef.current;
     const container = containerRef.current;
     if (!container || !video) return;
-
-    const isInFS =
-      document.fullscreenElement ||
+    const isInFS = document.fullscreenElement ||
       (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement;
-
     if (isInFS) {
-      // Exit fullscreen
       if (document.exitFullscreen) document.exitFullscreen();
-      else if ((document as Document & { webkitExitFullscreen?: () => void }).webkitExitFullscreen) {
-        (document as Document & { webkitExitFullscreen?: () => void }).webkitExitFullscreen!();
-      }
+      else (document as Document & { webkitExitFullscreen?: () => void }).webkitExitFullscreen?.();
     } else {
-      // Enter fullscreen — try container first, fall back to iOS native video fullscreen
-      if (container.requestFullscreen) {
-        container.requestFullscreen();
-      } else if ((container as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen) {
+      if (container.requestFullscreen) container.requestFullscreen();
+      else if ((container as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen)
         (container as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen!();
-      } else if ((video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen) {
-        // iOS Safari fallback — native video fullscreen
-        (video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen!();
-      }
+      else (video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen?.();
     }
   }, []);
 
@@ -213,7 +287,7 @@ export default function VideoPlayer({
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !videoRef.current) return;
-    const rect = progressRef.current.getBoundingClientRect();
+    const rect  = progressRef.current.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const newTime = ratio * duration;
     videoRef.current.currentTime = newTime;
@@ -226,13 +300,29 @@ export default function VideoPlayer({
     setVolume(v);
     if (videoRef.current) {
       videoRef.current.volume = v;
-      videoRef.current.muted = v === 0;
+      videoRef.current.muted  = v === 0;
       setIsMuted(v === 0);
     }
   };
 
-  const progressPct = duration ? (currentTime / duration) * 100 : 0;
-  const bufferedPct = duration ? (buffered / duration) * 100 : 0;
+  const changeSpeed = (rate: number) => {
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+    setPlaybackRate(rate);
+    setShowSettings(false);
+    setSettingsView('main');
+  };
+
+  const openSettings = () => {
+    setSettingsView('main');
+    setShowSettings((v) => !v);
+  };
+
+  const progressPct  = duration ? (currentTime / duration) * 100 : 0;
+  const bufferedPct  = duration ? (buffered  / duration) * 100 : 0;
+  const sizeCls      = SUBTITLE_SIZES.find((s) => s.value === subtitleSize)?.cls ?? 'text-lg';
+  const currentSpeedLabel = SPEEDS.find((s) => s.value === playbackRate)?.label ?? 'Normal';
+
+  // ── render ───────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -241,11 +331,11 @@ export default function VideoPlayer({
       onMouseMove={resetControlsTimer}
       onMouseLeave={() => { if (isPlaying) setShowControls(false); }}
     >
+      {/* Video */}
       <video
         ref={videoRef}
         src={videoUrl}
         className="w-full h-full object-contain"
-        onClick={togglePlay}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
@@ -260,7 +350,27 @@ export default function VideoPlayer({
         playsInline
         preload="metadata"
         x-webkit-airplay="allow"
-      />
+      >
+        {trackSrc && (
+          <track key={trackSrc} kind="subtitles" src={trackSrc} srcLang="en" label="English" />
+        )}
+      </video>
+
+      {/* Custom subtitle overlay */}
+      {subtitlesOn && activeCueText && (
+        <div
+          className={`absolute left-0 right-0 flex justify-center px-6 pointer-events-none z-10 ${
+            subtitlePosition === 'bottom' ? 'bottom-20' : 'top-16'
+          }`}
+        >
+          <span
+            className={`px-3 py-1.5 bg-black/80 rounded text-white text-center leading-snug ${sizeCls}`}
+            style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)', whiteSpace: 'pre-line' }}
+          >
+            {activeCueText}
+          </span>
+        </div>
+      )}
 
       {/* Loading spinner */}
       {isLoading && (
@@ -276,16 +386,30 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Center play button when paused */}
-      {!isPlaying && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Center tap area — always active, shows icon when paused or on flash */}
+      <div
+        className="absolute inset-0 flex items-center justify-center cursor-pointer"
+        onClick={() => togglePlay(true)}
+        aria-label={isPlaying ? 'Pause' : 'Play'}
+      >
+        {/* Static icon when paused */}
+        {!isPlaying && !isLoading && !centerFlash && (
           <div className="w-20 h-20 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-sm">
             <Play size={32} className="text-white fill-white ml-1" />
           </div>
-        </div>
-      )}
+        )}
+        {/* Flash animation on tap */}
+        {centerFlash && (
+          <div className="w-20 h-20 rounded-full bg-black/70 flex items-center justify-center backdrop-blur-sm animate-ping-once">
+            {centerFlash === 'play'
+              ? <Play  size={32} className="text-white fill-white ml-1" />
+              : <Pause size={32} className="text-white fill-white" />
+            }
+          </div>
+        )}
+      </div>
 
-      {/* Controls */}
+      {/* Controls overlay */}
       <div
         className={`player-overlay absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${
           showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -304,7 +428,130 @@ export default function VideoPlayer({
         </div>
 
         {/* Bottom controls */}
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-4 relative">
+
+          {/* ── Settings panel ── */}
+          {showSettings && (
+            <div className="absolute bottom-full right-4 mb-3 w-56 bg-[#1a1a1a]/95 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden shadow-2xl z-20 animate-fade-in">
+
+              {/* Main menu */}
+              {settingsView === 'main' && (
+                <div>
+                  <div className="px-4 py-3 border-b border-white/8 text-xs font-semibold text-white/40 uppercase tracking-wider">
+                    Settings
+                  </div>
+                  <button
+                    onClick={() => setSettingsView('speed')}
+                    className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    <span className="text-white text-sm font-medium">Play Speed</span>
+                    <span className="text-white/50 text-xs">{currentSpeedLabel} ›</span>
+                  </button>
+                  {trackSrc && (
+                    <button
+                      onClick={() => setSettingsView('subtitle')}
+                      className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-white/8 transition-colors cursor-pointer border-t border-white/5"
+                    >
+                      <span className="text-white text-sm font-medium">Subtitle</span>
+                      <span className="text-white/50 text-xs">
+                        {subtitlesOn ? subtitleSize.charAt(0).toUpperCase() + subtitleSize.slice(1) : 'Off'} ›
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Speed sub-menu */}
+              {settingsView === 'speed' && (
+                <div>
+                  <button
+                    onClick={() => setSettingsView('main')}
+                    className="w-full flex items-center gap-2 px-4 py-3.5 border-b border-white/8 hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft size={16} className="text-white/60" />
+                    <span className="text-white font-semibold text-sm">Play Speed</span>
+                  </button>
+                  {SPEEDS.map((s) => (
+                    <button
+                      key={s.value}
+                      onClick={() => changeSpeed(s.value)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/8 transition-colors cursor-pointer"
+                    >
+                      <span className={`text-sm ${playbackRate === s.value ? 'text-green-400 font-semibold' : 'text-white'}`}>
+                        {s.label}
+                      </span>
+                      {playbackRate === s.value && <Check size={14} className="text-green-400" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Subtitle sub-menu */}
+              {settingsView === 'subtitle' && (
+                <div>
+                  <button
+                    onClick={() => setSettingsView('main')}
+                    className="w-full flex items-center gap-2 px-4 py-3.5 border-b border-white/8 hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft size={16} className="text-white/60" />
+                    <span className="text-white font-semibold text-sm">Subtitle</span>
+                  </button>
+
+                  {/* On/Off toggle */}
+                  <button
+                    onClick={() => setSubtitlesOn((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/8 transition-colors cursor-pointer border-b border-white/5"
+                  >
+                    <span className="text-white/70 text-xs uppercase tracking-wider">Subtitles</span>
+                    <span className={`text-xs font-semibold ${subtitlesOn ? 'text-green-400' : 'text-white/40'}`}>
+                      {subtitlesOn ? 'On' : 'Off'}
+                    </span>
+                  </button>
+
+                  {/* Size */}
+                  <div className="px-4 pt-3 pb-1">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-2">Text Size</p>
+                    <div className="flex gap-2">
+                      {SUBTITLE_SIZES.map((s) => (
+                        <button
+                          key={s.value}
+                          onClick={() => setSubtitleSize(s.value)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                            subtitleSize === s.value
+                              ? 'bg-brand-red border-brand-red text-white'
+                              : 'border-white/10 text-white/50 hover:text-white hover:border-white/30'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Position */}
+                  <div className="px-4 pt-2 pb-3">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-2">Position</p>
+                    <div className="flex gap-2">
+                      {(['bottom', 'top'] as const).map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => setSubtitlePosition(pos)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border capitalize ${
+                            subtitlePosition === pos
+                              ? 'bg-brand-red border-brand-red text-white'
+                              : 'border-white/10 text-white/50 hover:text-white hover:border-white/30'
+                          }`}
+                        >
+                          {pos}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Progress bar */}
           <div
             ref={progressRef}
@@ -327,7 +574,7 @@ export default function VideoPlayer({
                 <SkipBack size={20} strokeWidth={2} />
               </button>
               <button
-                onClick={togglePlay}
+                onClick={() => togglePlay(false)}
                 className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-[0.92] cursor-pointer"
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
@@ -356,10 +603,40 @@ export default function VideoPlayer({
               </span>
             </div>
 
+            {/* Right controls */}
             <div className="flex items-center gap-1">
-              <button className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer hidden sm:block" aria-label="Settings">
-                <Settings size={18} />
+              {/* CC button — only when subtitles available */}
+              {trackSrc && (
+                <button
+                  onClick={() => setSubtitlesOn((v) => !v)}
+                  className={`px-2 py-1 rounded text-[11px] font-bold transition-all cursor-pointer border ${
+                    subtitlesOn
+                      ? 'bg-white text-black border-white'
+                      : 'bg-transparent text-white/60 border-white/30 hover:text-white hover:border-white/60'
+                  }`}
+                  aria-label={subtitlesOn ? 'Turn off subtitles' : 'Turn on subtitles'}
+                >
+                  CC
+                </button>
+              )}
+
+              {/* Speed badge (visible when not 1x) */}
+              {playbackRate !== 1 && (
+                <span className="hidden sm:block px-1.5 py-0.5 rounded bg-white/10 text-white/70 text-[11px] font-semibold">
+                  {playbackRate}x
+                </span>
+              )}
+
+              {/* Settings */}
+              <button
+                onClick={openSettings}
+                className={`p-2 transition-colors cursor-pointer hidden sm:block ${showSettings ? 'text-white' : 'text-white/80 hover:text-white'}`}
+                aria-label="Settings"
+              >
+                <Settings size={18} className={showSettings ? 'text-brand-red' : ''} />
               </button>
+
+              {/* Fullscreen */}
               <button onClick={toggleFullscreen} className="p-2 text-white/80 hover:text-white transition-colors cursor-pointer" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
                 {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </button>

@@ -38,6 +38,8 @@ export default function ChatSidebar({ roomId, username, participants }: ChatSide
   const [tab, setTab] = useState<'chat' | 'users'>('chat');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Track IDs of messages I sent optimistically so I don't add them again when Pusher echoes them back
+  const sentIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,14 +51,21 @@ export default function ChatSidebar({ roomId, username, participants }: ChatSide
     const channel = pusher.subscribe(`room-${roomId}`);
 
     const handleChat = (msg: ChatMessage) => {
+      // Skip messages I already added optimistically — Pusher echoes them back to me too
+      if (sentIdsRef.current.has(msg.id)) {
+        sentIdsRef.current.delete(msg.id);
+        return;
+      }
       setMessages((prev) => [...prev, msg]);
     };
 
-    const handleUserJoined = ({ username: u }: { username: string }) => {
+    const handleUserJoined = ({ username: u }: { id: string; username: string }) => {
+      // Don't show "You joined" for yourself
+      if (u === username) return;
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
+          id: crypto.randomUUID(),
           username: 'System',
           message: `${u} joined the watch party`,
           timestamp: Date.now(),
@@ -65,11 +74,12 @@ export default function ChatSidebar({ roomId, username, participants }: ChatSide
       ]);
     };
 
-    const handleUserLeft = ({ username: u }: { username: string }) => {
+    const handleUserLeft = ({ username: u }: { id: string; username: string }) => {
+      if (u === username) return;
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
+          id: crypto.randomUUID(),
           username: 'System',
           message: `${u} left the watch party`,
           timestamp: Date.now(),
@@ -93,13 +103,15 @@ export default function ChatSidebar({ roomId, username, participants }: ChatSide
     const text = input.trim();
     if (!text) return;
     const msg: ChatMessage = {
-      id: Date.now().toString() + Math.random(),
+      id: crypto.randomUUID(),
       username,
       message: text,
       timestamp: Date.now(),
       isSystem: false,
     };
-    // Optimistic update
+    // Mark this ID so the Pusher echo is ignored
+    sentIdsRef.current.add(msg.id);
+    // Optimistic update — show instantly for the sender
     setMessages((prev) => [...prev, msg]);
     triggerEvent(roomId, 'chat-message', msg as unknown as Record<string, unknown>);
     setInput('');
