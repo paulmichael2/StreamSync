@@ -122,11 +122,25 @@ export default function VideoPlayer({
     else videoRef.current.addEventListener('loadedmetadata', apply, { once: true });
   }, [initialTime, initialPlaying]);
 
-  // Fullscreen listener
+  // Fullscreen listener — handle all vendor prefixes + iOS native video fullscreen
   useEffect(() => {
-    const onFS = () => setIsFullscreen(!!document.fullscreenElement);
+    const onFS = () => {
+      const el = document.fullscreenElement ||
+        (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+      setIsFullscreen(!!el);
+    };
+    const onIOSFS = () => setIsFullscreen(false); // iOS exits fullscreen via native player
+
     document.addEventListener('fullscreenchange', onFS);
-    return () => document.removeEventListener('fullscreenchange', onFS);
+    document.addEventListener('webkitfullscreenchange', onFS);
+    videoRef.current?.addEventListener('webkitbeginfullscreen', () => setIsFullscreen(true));
+    videoRef.current?.addEventListener('webkitendfullscreen', onIOSFS);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFS);
+      document.removeEventListener('webkitfullscreenchange', onFS);
+      videoRef.current?.removeEventListener('webkitendfullscreen', onIOSFS);
+    };
   }, []);
 
   // Keyboard shortcuts
@@ -163,9 +177,31 @@ export default function VideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(() => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) containerRef.current.requestFullscreen();
-    else document.exitFullscreen();
+    const video = videoRef.current;
+    const container = containerRef.current;
+    if (!container || !video) return;
+
+    const isInFS =
+      document.fullscreenElement ||
+      (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+
+    if (isInFS) {
+      // Exit fullscreen
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if ((document as Document & { webkitExitFullscreen?: () => void }).webkitExitFullscreen) {
+        (document as Document & { webkitExitFullscreen?: () => void }).webkitExitFullscreen!();
+      }
+    } else {
+      // Enter fullscreen — try container first, fall back to iOS native video fullscreen
+      if (container.requestFullscreen) {
+        container.requestFullscreen();
+      } else if ((container as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen) {
+        (container as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen!();
+      } else if ((video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen) {
+        // iOS Safari fallback — native video fullscreen
+        (video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }).webkitEnterFullscreen!();
+      }
+    }
   }, []);
 
   const skipBy = useCallback((seconds: number) => {
@@ -223,6 +259,7 @@ export default function VideoPlayer({
         onLoadedMetadata={() => setIsLoading(false)}
         playsInline
         preload="metadata"
+        x-webkit-airplay="allow"
       />
 
       {/* Loading spinner */}
