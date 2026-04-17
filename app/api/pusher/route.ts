@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
           { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString() },
           { onConflict: 'user_id,room_id' }
         );
-        if (error) console.error('[room_sessions upsert]', error.message);
+        if (error) console.error('[room_sessions upsert]', JSON.stringify(error));
       }
       break;
 

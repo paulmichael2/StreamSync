@@ -15,8 +15,8 @@ export async function GET() {
 
     const { data, error } = await supabase.from('room_sessions').select('*');
     if (error) {
-      console.error('[room_sessions select]', error.message);
-      return NextResponse.json([], { status: 500 });
+      console.error('[room_sessions select]', JSON.stringify(error));
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     // Group rows by room_id
@@ -35,12 +35,16 @@ export async function GET() {
       map[row.room_id].users.push({ id: row.user_id, username: row.username });
     }
 
-    return NextResponse.json(Object.values(map));
+    return NextResponse.json(Object.values(map), {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
 
   // Local fallback — use in-memory state
   const active = Object.entries(roomStates)
     .filter(([, s]) => s.users.length > 0)
     .map(([id, s]) => ({ id, ...s }));
-  return NextResponse.json(active);
+  return NextResponse.json(active, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
