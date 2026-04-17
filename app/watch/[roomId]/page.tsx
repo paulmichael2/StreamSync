@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { Check, ArrowLeft, Link2, Film } from 'lucide-react';
 import VideoPlayer from '@/components/VideoPlayer';
 import ChatSidebar from '@/components/ChatSidebar';
+import JoinModal from '@/components/JoinModal';
 import { Movie, Participant } from '@/lib/types';
 import { getPusherClient } from '@/lib/pusherClient';
 
@@ -23,7 +24,8 @@ function WatchPartyContent() {
 
   const roomId = params.roomId as string;
   const movieId = searchParams.get('movie') ?? '1';
-  const username = searchParams.get('username') ?? 'Guest';
+  // If no username in URL, they arrived via invite link — show the join modal
+  const urlUsername = searchParams.get('username');
 
   const [movie, setMovie] = useState<Movie | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -31,6 +33,10 @@ function WatchPartyContent() {
   const [initialPlaying, setInitialPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
+  // Show modal if no username provided (invite link) or if username is generic
+  const [showJoinModal, setShowJoinModal] = useState(!urlUsername);
+  const [username, setUsername] = useState(urlUsername ?? '');
+  const [hasJoined, setHasJoined] = useState(!!urlUsername);
   const clientId = useRef(crypto.randomUUID());
 
   // Fetch movie
@@ -44,13 +50,15 @@ function WatchPartyContent() {
       .catch(console.error);
   }, [movieId]);
 
-  // Connect to room via Pusher + get initial sync state
+  // Connect to room — only after username is set
   useEffect(() => {
+    if (!hasJoined || !username) return;
+
     const id = clientId.current;
     const pusher = getPusherClient();
     const channel = pusher.subscribe(`room-${roomId}`);
 
-    // Get current playback state from server so late joiners sync up
+    // Get current playback state so late joiners sync up
     fetch(`/api/pusher?roomId=${roomId}`)
       .then((r) => r.json())
       .then((state) => {
@@ -61,7 +69,6 @@ function WatchPartyContent() {
       })
       .catch(() => {});
 
-    // Track participants via join/leave events
     const handleUserJoined = ({ id: uid, username: u }: { id: string; username: string }) => {
       setParticipants((prev) => {
         if (prev.find((p) => p.id === uid)) return prev;
@@ -76,10 +83,8 @@ function WatchPartyContent() {
     channel.bind('user-joined', handleUserJoined);
     channel.bind('user-left', handleUserLeft);
 
-    // Announce our presence (small delay to ensure channel is subscribed)
     const announceTimer = setTimeout(() => {
       triggerEvent(roomId, 'user-joined', { id, username });
-      // Add ourselves to the local list immediately
       setParticipants((prev) => {
         if (prev.find((p) => p.id === id)) return prev;
         return [...prev, { id, username }];
@@ -93,10 +98,24 @@ function WatchPartyContent() {
       triggerEvent(roomId, 'user-left', { id, username });
       setParticipants([]);
     };
-  }, [roomId, username]);
+  }, [roomId, username, hasJoined]);
 
+  // Called when user submits name in the join modal
+  const handleJoin = (name: string) => {
+    setUsername(name);
+    setHasJoined(true);
+    setShowJoinModal(false);
+    // Update URL with their chosen username (without triggering a navigation)
+    const url = new URL(window.location.href);
+    url.searchParams.set('username', name);
+    window.history.replaceState({}, '', url.toString());
+  };
+
+  // Copy invite link WITHOUT the username so the recipient picks their own name
   const copyLink = async () => {
-    await navigator.clipboard.writeText(window.location.href);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('username');
+    await navigator.clipboard.writeText(url.toString());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -110,98 +129,111 @@ function WatchPartyContent() {
   }
 
   return (
-    <div className="h-screen bg-black flex flex-col overflow-hidden">
-      {/* Top bar */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0a0a] border-b border-white/[0.08]">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push('/')}
-            className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
-            aria-label="Back"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div className="h-5 w-px bg-white/10" />
+    <>
+      {/* Join modal for invite guests */}
+      {showJoinModal && (
+        <JoinModal
+          movieTitle={movie?.title ?? ''}
+          onJoin={handleJoin}
+          onClose={() => {
+            // If they close without joining, go back home
+            router.push('/');
+          }}
+        />
+      )}
+
+      <div className={`h-screen bg-black flex flex-col overflow-hidden ${showJoinModal ? 'pointer-events-none select-none blur-sm' : ''}`}>
+        {/* Top bar */}
+        <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0a0a] border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/')}
+              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+              aria-label="Back"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <div className="h-5 w-px bg-white/10" />
+            <div className="flex items-center gap-2">
+              <Film size={15} className="text-brand-red" />
+              <span className="text-white font-semibold text-sm truncate max-w-[200px] sm:max-w-xs">
+                {movie.title}
+              </span>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
-            <Film size={15} className="text-brand-red" />
-            <span className="text-white font-semibold text-sm truncate max-w-[200px] sm:max-w-xs">
-              {movie.title}
-            </span>
+            {/* Avatars */}
+            <div className="hidden sm:flex items-center -space-x-2">
+              {participants.slice(0, 4).map((p, i) => (
+                <div
+                  key={p.id}
+                  title={p.username}
+                  className="w-7 h-7 rounded-full border-2 border-black flex items-center justify-center text-[10px] font-bold text-white"
+                  style={{ background: ['#E11D48', '#7C3AED', '#2563EB', '#059669'][i % 4], zIndex: 4 - i }}
+                >
+                  {p.username.charAt(0).toUpperCase()}
+                </div>
+              ))}
+              {participants.length > 4 && (
+                <div className="w-7 h-7 rounded-full border-2 border-black bg-white/10 flex items-center justify-center text-[9px] text-white/70">
+                  +{participants.length - 4}
+                </div>
+              )}
+            </div>
+
+            {/* Invite button */}
+            <button
+              onClick={copyLink}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-red/15 text-brand-red hover:bg-brand-red/25 transition-all text-xs font-semibold cursor-pointer"
+            >
+              {copied ? <Check size={13} /> : <Link2 size={13} />}
+              <span className="hidden sm:block">{copied ? 'Copied!' : 'Invite'}</span>
+            </button>
+
+            <button
+              onClick={() => setChatOpen((v) => !v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${chatOpen ? 'bg-white/10 text-white' : 'bg-white/5 text-white/50 hover:text-white'}`}
+            >
+              {chatOpen ? 'Hide Chat' : 'Show Chat'}
+            </button>
           </div>
-        </div>
+        </header>
 
-        <div className="flex items-center gap-2">
-          {/* Avatars */}
-          <div className="hidden sm:flex items-center -space-x-2">
-            {participants.slice(0, 4).map((p, i) => (
-              <div
-                key={p.id}
-                title={p.username}
-                className="w-7 h-7 rounded-full border-2 border-black flex items-center justify-center text-[10px] font-bold text-white"
-                style={{ background: ['#E11D48','#7C3AED','#2563EB','#059669'][i % 4], zIndex: 4 - i }}
-              >
-                {p.username.charAt(0).toUpperCase()}
-              </div>
-            ))}
-            {participants.length > 4 && (
-              <div className="w-7 h-7 rounded-full border-2 border-black bg-white/10 flex items-center justify-center text-[9px] text-white/70">
-                +{participants.length - 4}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={copyLink}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-red/15 text-brand-red hover:bg-brand-red/25 transition-all text-xs font-semibold cursor-pointer"
-          >
-            {copied ? <Check size={13} /> : <Link2 size={13} />}
-            <span className="hidden sm:block">{copied ? 'Copied!' : 'Invite'}</span>
-          </button>
-
-          <button
-            onClick={() => setChatOpen((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${chatOpen ? 'bg-white/10 text-white' : 'bg-white/5 text-white/50 hover:text-white'}`}
-          >
-            {chatOpen ? 'Hide Chat' : 'Show Chat'}
-          </button>
-        </div>
-      </header>
-
-      {/* Main layout */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Video */}
-        <div className="flex-1 flex items-stretch bg-black min-w-0">
-          <VideoPlayer
-            videoUrl={movie.videoUrl}
-            movieTitle={movie.title}
-            roomId={roomId}
-            participants={participants}
-            initialTime={initialTime}
-            initialPlaying={initialPlaying}
-          />
-        </div>
-
-        {/* Chat — desktop */}
-        {chatOpen && (
-          <div className="flex-shrink-0 w-72 xl:w-80 h-full hidden sm:flex flex-col">
-            <ChatSidebar
+        {/* Main layout */}
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          <div className="flex-1 flex items-stretch bg-black min-w-0">
+            <VideoPlayer
+              videoUrl={movie.videoUrl}
+              movieTitle={movie.title}
               roomId={roomId}
-              username={username}
               participants={participants}
+              initialTime={initialTime}
+              initialPlaying={initialPlaying}
             />
           </div>
-        )}
-      </div>
 
-      {/* Chat — mobile */}
-      <div className="sm:hidden flex-shrink-0 h-64 border-t border-white/[0.08]">
-        <ChatSidebar
-          roomId={roomId}
-          username={username}
-          participants={participants}
-        />
+          {chatOpen && (
+            <div className="flex-shrink-0 w-72 xl:w-80 h-full hidden sm:flex flex-col">
+              <ChatSidebar
+                roomId={roomId}
+                username={username}
+                participants={participants}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Chat — mobile */}
+        <div className="sm:hidden flex-shrink-0 h-64 border-t border-white/[0.08]">
+          <ChatSidebar
+            roomId={roomId}
+            username={username}
+            participants={participants}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
