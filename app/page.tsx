@@ -2,13 +2,40 @@ import { Movie } from '@/lib/types';
 import Navbar from '@/components/Navbar';
 import HeroSection from '@/components/HeroSection';
 import MovieRow from '@/components/MovieRow';
+import fs from 'fs';
+import path from 'path';
+
+const hasSupabase =
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder');
 
 async function getMovies(): Promise<Movie[]> {
   try {
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    const res = await fetch(`${base}/api/movies`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    return res.json();
+    if (hasSupabase) {
+      const { supabase } = await import('@/lib/supabase');
+      const { data, error } = await supabase
+        .from('movies')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (error || !data) return [];
+      return data.map((row) => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        genre: row.genre,
+        genres: row.genres,
+        year: row.year,
+        rating: row.rating,
+        thumbnail: row.thumbnail,
+        backdrop: row.backdrop,
+        videoUrl: row.video_url,
+        duration: row.duration,
+        featured: row.featured,
+      }));
+    }
+    // Local fallback
+    const data = fs.readFileSync(path.join(process.cwd(), 'data', 'movies.json'), 'utf-8');
+    return JSON.parse(data);
   } catch {
     return [];
   }
