@@ -14,7 +14,10 @@ export async function GET() {
     await supabase.from('room_sessions').delete().lt('updated_at', staleAt);
 
     const { data, error } = await supabase.from('room_sessions').select('*');
-    if (error) return NextResponse.json([], { status: 500 });
+    if (error) {
+      console.error('[room_sessions select]', error.message);
+      return NextResponse.json([], { status: 500 });
+    }
 
     // Group rows by room_id
     const map: Record<string, { id: string; movieId: string; users: { id: string; username: string }[]; currentTime: number; isPlaying: boolean; updatedAt: number }> = {};

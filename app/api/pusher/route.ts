@@ -46,10 +46,11 @@ export async function POST(req: NextRequest) {
 
       if (hasSupabase) {
         const { supabase } = await import('@/lib/supabase');
-        await supabase.from('room_sessions').upsert(
+        const { error } = await supabase.from('room_sessions').upsert(
           { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString() },
           { onConflict: 'user_id,room_id' }
         );
+        if (error) console.error('[room_sessions upsert]', error.message);
       }
       break;
 
@@ -59,8 +60,9 @@ export async function POST(req: NextRequest) {
 
       if (hasSupabase) {
         const { supabase } = await import('@/lib/supabase');
-        await supabase.from('room_sessions').delete()
+        const { error } = await supabase.from('room_sessions').delete()
           .eq('user_id', data.id).eq('room_id', roomId);
+        if (error) console.error('[room_sessions delete]', error.message);
       }
       break;
   }
