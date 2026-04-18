@@ -144,6 +144,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  await pusherServer.trigger(`room-${roomId}`, event, data);
+  try {
+    await pusherServer.trigger(`room-${roomId}`, event, data);
+  } catch (err) {
+    console.error('[room trigger]', String(err));
+  }
   return NextResponse.json({ success: true });
 }
