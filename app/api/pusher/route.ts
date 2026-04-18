@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         closingAt = Date.now() + GRACE_MS;
       }
 
-      roomsPayload = { action: 'user-left', roomId, userId: data.id, closingAt };
+      roomsPayload = { action: 'user-left', roomId, movieId: room.movieId, userId: data.id, closingAt };
       break;
     }
   }

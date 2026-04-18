@@ -188,24 +188,42 @@ export default function RoomsPage() {
     return () => clearInterval(t);
   }, [fetchRooms]);
 
-  // Global channel — detect brand-new rooms not yet in our list
+  // Global channel — sync rooms not yet in our local list
   useEffect(() => {
     const pusher = getPusherClient();
     const ch = pusher.subscribe('rooms');
     ch.bind('rooms-updated', (payload: unknown) => {
-      const p = payload as { action?: string; roomId?: string; movieId?: string; user?: RoomUser } | null;
+      const p = payload as {
+        action?: string; roomId?: string; movieId?: string;
+        user?: RoomUser; userId?: string; closingAt?: number | null;
+      } | null;
+
       if (p?.action === 'user-joined' && p.roomId && p.user) {
         setRooms((prev) => {
-          if (prev.find((r) => r.id === p.roomId)) return prev; // already known; room channel handles it
+          if (prev.find((r) => r.id === p.roomId)) return prev; // already known; room channel handles updates
           return [...prev, {
-            id: p.roomId!,
-            movieId: p.movieId ?? '',
-            users: [p.user!],
-            currentTime: 0,
-            isPlaying: false,
-            updatedAt: Date.now(),
-            closingAt: null,
+            id: p.roomId!, movieId: p.movieId ?? '',
+            users: [p.user!], currentTime: 0, isPlaying: false,
+            updatedAt: Date.now(), closingAt: null,
           }];
+        });
+      } else if (p?.action === 'user-left' && p.roomId) {
+        setRooms((prev) => {
+          const existing = prev.find((r) => r.id === p.roomId);
+          if (existing) {
+            // Room already in list — room channel handles user removal; just sync closingAt
+            const users = existing.users.filter((u) => u.id !== p.userId);
+            return prev.map((r) => r.id !== p.roomId ? r : { ...r, users, closingAt: p.closingAt ?? null });
+          }
+          // Room not in list but now closing — show it so user can see / rejoin
+          if (p.closingAt) {
+            return [...prev, {
+              id: p.roomId!, movieId: p.movieId ?? '',
+              users: [], currentTime: 0, isPlaying: false,
+              updatedAt: Date.now(), closingAt: p.closingAt,
+            }];
+          }
+          return prev;
         });
       }
     });

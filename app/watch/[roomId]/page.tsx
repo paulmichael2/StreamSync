@@ -99,7 +99,7 @@ function WatchPartyContent() {
         if (prev.find((p) => p.id === id)) return prev;
         return [...prev, { id, username }];
       });
-    }, 300);
+    }, 50);
 
     // Keepalive: refresh updated_at in Supabase every 4 minutes so sessions don't get cleaned up
     const keepaliveInterval = setInterval(() => {
