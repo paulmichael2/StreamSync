@@ -244,6 +244,7 @@ function WatchPartyContent() {
               videoUrl={movie.videoUrl}
               movieTitle={movie.title}
               roomId={roomId}
+              userId={clientId.current}
               participants={participants}
               initialTime={initialTime}
               initialPlaying={initialPlaying}

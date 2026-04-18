@@ -12,6 +12,7 @@ interface VideoPlayerProps {
   videoUrl: string;
   movieTitle: string;
   roomId: string;
+  userId: string;
   participants: Participant[];
   initialTime?: number;
   initialPlaying?: boolean;
@@ -51,7 +52,7 @@ async function triggerEvent(roomId: string, event: string, data: Record<string, 
 }
 
 export default function VideoPlayer({
-  videoUrl, movieTitle, roomId, participants,
+  videoUrl, movieTitle, roomId, userId, participants,
   initialTime = 0, initialPlaying = false, subtitleUrl = '',
 }: VideoPlayerProps) {
   const videoRef      = useRef<HTMLVideoElement>(null);
@@ -187,8 +188,10 @@ export default function VideoPlayer({
 
     // When a new viewer joins, existing members broadcast their current state so the
     // joiner can snap to the right position and play/pause state immediately.
-    const handleUserJoinedSync = () => {
+    // Skip if it's our own join event — we don't have the right state yet.
+    const handleUserJoinedSync = ({ user }: { user?: { id: string } }) => {
       if (!videoRef.current) return;
+      if (user?.id === userId) return; // I'm the one who just joined — don't respond
       triggerEvent(roomId, 'sync-host', {
         currentTime: videoRef.current.currentTime,
         isPlaying: !videoRef.current.paused,
@@ -199,8 +202,12 @@ export default function VideoPlayer({
 
     // New joiner receives sync-host — apply only the first response (cooldown prevents
     // applying one from every existing member in large rooms).
+    // Only apply if the incoming time is meaningfully ahead (>1s), so we don't
+    // accidentally snap backwards if multiple responses arrive out of order.
     channel.bind('sync-host', ({ currentTime: ct, isPlaying: ip, rate }: { currentTime: number; isPlaying: boolean; rate?: number }) => {
       if (!videoRef.current || syncHostLock.current) return;
+      // If the incoming time is not ahead of where we already are, ignore it
+      if (ct <= videoRef.current.currentTime && videoRef.current.currentTime > 1) return;
       syncHostLock.current = true;
       setTimeout(() => { syncHostLock.current = false; }, 2000);
       isSyncing.current = true;
