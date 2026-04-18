@@ -189,9 +189,10 @@ export default function VideoPlayer({
     // When a new viewer joins, existing members broadcast their current state so the
     // joiner can snap to the right position and play/pause state immediately.
     // Skip if it's our own join event — we don't have the right state yet.
-    const handleUserJoinedSync = ({ user }: { user?: { id: string } }) => {
+    // NOTE: data is { id, username, ... } at the top level (not nested under 'user').
+    const handleUserJoinedSync = ({ id: joinedId }: { id?: string }) => {
       if (!videoRef.current) return;
-      if (user?.id === userId) return; // I'm the one who just joined — don't respond
+      if (joinedId === userId) return; // I'm the one who just joined — don't respond
       triggerEvent(roomId, 'sync-host', {
         currentTime: videoRef.current.currentTime,
         isPlaying: !videoRef.current.paused,
@@ -202,24 +203,31 @@ export default function VideoPlayer({
 
     // New joiner receives sync-host — apply only the first response (cooldown prevents
     // applying one from every existing member in large rooms).
-    // Only apply if the incoming time is meaningfully ahead (>1s), so we don't
-    // accidentally snap backwards if multiple responses arrive out of order.
     channel.bind('sync-host', ({ currentTime: ct, isPlaying: ip, rate }: { currentTime: number; isPlaying: boolean; rate?: number }) => {
       if (!videoRef.current || syncHostLock.current) return;
-      // If the incoming time is not ahead of where we already are, ignore it
-      if (ct <= videoRef.current.currentTime && videoRef.current.currentTime > 1) return;
       syncHostLock.current = true;
       setTimeout(() => { syncHostLock.current = false; }, 2000);
-      isSyncing.current = true;
-      videoRef.current.currentTime = ct;
-      if (rate && rate !== videoRef.current.playbackRate) {
-        videoRef.current.playbackRate = rate;
-        setPlaybackRate(rate);
+
+      const applySync = () => {
+        if (!videoRef.current) return;
+        isSyncing.current = true;
+        videoRef.current.currentTime = ct;
+        if (rate && rate !== videoRef.current.playbackRate) {
+          videoRef.current.playbackRate = rate;
+          setPlaybackRate(rate);
+        }
+        if (ip) videoRef.current.play().catch(() => {});
+        else videoRef.current.pause();
+        setTimeout(() => { isSyncing.current = false; }, 300);
+        flashSync();
+      };
+
+      // If metadata isn't loaded yet, wait for it before seeking
+      if (videoRef.current.readyState < 1) {
+        videoRef.current.addEventListener('loadedmetadata', applySync, { once: true });
+      } else {
+        applySync();
       }
-      if (ip) videoRef.current.play().catch(() => {});
-      else videoRef.current.pause();
-      setTimeout(() => { isSyncing.current = false; }, 300);
-      flashSync();
     });
 
     return () => {
