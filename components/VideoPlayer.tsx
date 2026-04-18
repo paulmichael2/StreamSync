@@ -178,6 +178,13 @@ export default function VideoPlayer({
       flashSync();
     });
 
+    channel.bind('speed', ({ rate }: { rate: number }) => {
+      if (!videoRef.current) return;
+      videoRef.current.playbackRate = rate;
+      setPlaybackRate(rate);
+      flashSync();
+    });
+
     // When a new viewer joins, existing members broadcast their current state so the
     // joiner can snap to the right position and play/pause state immediately.
     const handleUserJoinedSync = () => {
@@ -185,18 +192,23 @@ export default function VideoPlayer({
       triggerEvent(roomId, 'sync-host', {
         currentTime: videoRef.current.currentTime,
         isPlaying: !videoRef.current.paused,
+        rate: videoRef.current.playbackRate,
       });
     };
     channel.bind('user-joined', handleUserJoinedSync);
 
     // New joiner receives sync-host — apply only the first response (cooldown prevents
     // applying one from every existing member in large rooms).
-    channel.bind('sync-host', ({ currentTime: ct, isPlaying: ip }: { currentTime: number; isPlaying: boolean }) => {
+    channel.bind('sync-host', ({ currentTime: ct, isPlaying: ip, rate }: { currentTime: number; isPlaying: boolean; rate?: number }) => {
       if (!videoRef.current || syncHostLock.current) return;
       syncHostLock.current = true;
       setTimeout(() => { syncHostLock.current = false; }, 2000);
       isSyncing.current = true;
       videoRef.current.currentTime = ct;
+      if (rate && rate !== videoRef.current.playbackRate) {
+        videoRef.current.playbackRate = rate;
+        setPlaybackRate(rate);
+      }
       if (ip) videoRef.current.play().catch(() => {});
       else videoRef.current.pause();
       setTimeout(() => { isSyncing.current = false; }, 300);
@@ -207,6 +219,7 @@ export default function VideoPlayer({
       channel.unbind('play');
       channel.unbind('pause');
       channel.unbind('seek');
+      channel.unbind('speed');
       channel.unbind('user-joined', handleUserJoinedSync);
       channel.unbind('sync-host');
     };
@@ -336,6 +349,7 @@ export default function VideoPlayer({
   const changeSpeed = (rate: number) => {
     if (videoRef.current) videoRef.current.playbackRate = rate;
     setPlaybackRate(rate);
+    triggerEvent(roomId, 'speed', { rate });
     setShowSettings(false);
     setSettingsView('main');
   };
