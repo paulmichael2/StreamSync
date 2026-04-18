@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { roomStates } from '@/lib/roomStates';
+import { GRACE_MS } from '@/lib/roomConfig';
 
 const hasSupabase =
   !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
   !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder');
-
-const GRACE_MS = 2 * 60 * 1000; // 2 minutes
 
 export async function GET() {
   if (hasSupabase) {
@@ -13,7 +12,7 @@ export async function GET() {
 
     const now      = new Date();
     const staleAt  = new Date(now.getTime() - 8 * 60 * 60 * 1000).toISOString(); // 8-hour crash cleanup
-    const graceAt  = new Date(now.getTime() - GRACE_MS).toISOString();        // 2-min grace cutoff
+    const graceAt  = new Date(now.getTime() - GRACE_MS).toISOString();
 
     // Clean truly stale sessions and expired closing records in parallel
     await Promise.all([

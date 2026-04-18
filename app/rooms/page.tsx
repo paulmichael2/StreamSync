@@ -186,11 +186,60 @@ export default function RoomsPage() {
     return () => clearInterval(t);
   }, [fetchRooms]);
 
-  // Real-time via Pusher
+  // Real-time via Pusher — apply changes directly to local state, no round-trip needed
   useEffect(() => {
     const pusher  = getPusherClient();
     const channel = pusher.subscribe('rooms');
-    channel.bind('rooms-updated', () => { fetchRooms(); });
+
+    channel.bind('rooms-updated', (payload: unknown) => {
+      const p = payload as {
+        action?: string;
+        roomId?: string;
+        movieId?: string;
+        user?: RoomUser;
+        userId?: string;
+        closingAt?: number | null;
+      } | null;
+
+      if (p?.action === 'user-joined' && p.roomId && p.user) {
+        setRooms((prev) => {
+          const existing = prev.find((r) => r.id === p.roomId);
+          if (existing) {
+            // User already in list (e.g. rejoined) — update and clear closingAt
+            if (existing.users.find((u) => u.id === p.user!.id)) {
+              return prev.map((r) => r.id === p.roomId ? { ...r, closingAt: null } : r);
+            }
+            return prev.map((r) =>
+              r.id === p.roomId
+                ? { ...r, users: [...r.users, p.user!], closingAt: null }
+                : r
+            );
+          }
+          // New room — create it
+          return [...prev, {
+            id: p.roomId!,
+            movieId: p.movieId ?? '',
+            users: [p.user!],
+            currentTime: 0,
+            isPlaying: false,
+            updatedAt: Date.now(),
+            closingAt: null,
+          }];
+        });
+      } else if (p?.action === 'user-left' && p.roomId) {
+        setRooms((prev) =>
+          prev.map((r) =>
+            r.id !== p.roomId
+              ? r
+              : { ...r, users: r.users.filter((u) => u.id !== p.userId), closingAt: p.closingAt ?? null }
+          )
+        );
+      } else {
+        // Unknown payload shape — fall back to a full re-fetch
+        fetchRooms();
+      }
+    });
+
     return () => {
       channel.unbind('rooms-updated');
       pusher.unsubscribe('rooms');
