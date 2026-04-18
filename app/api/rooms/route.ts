@@ -37,7 +37,11 @@ export async function GET() {
       updatedAt: number; closingAt: number | null;
     }> = {};
 
-    for (const row of sessions ?? []) {
+    // Filter to public rooms only (is_public missing = legacy row, treat as public)
+    const publicSessions = (sessions ?? []).filter((r) => r.is_public !== false);
+    const publicClosings = (closings ?? []).filter((r) => r.is_public !== false);
+
+    for (const row of publicSessions) {
       if (!map[row.room_id]) {
         map[row.room_id] = {
           id: row.room_id, movieId: row.movie_id ?? '',
@@ -51,7 +55,7 @@ export async function GET() {
 
     // Include ghost rooms (empty but still in grace window)
     const activeIds = new Set(Object.keys(map));
-    for (const closing of closings ?? []) {
+    for (const closing of publicClosings) {
       if (!activeIds.has(closing.room_id)) {
         map[closing.room_id] = {
           id: closing.room_id, movieId: closing.movie_id ?? '',
@@ -69,7 +73,7 @@ export async function GET() {
 
   // Local fallback
   const active = Object.entries(roomStates)
-    .filter(([, s]) => s.users.length > 0)
+    .filter(([, s]) => s.users.length > 0 && s.isPublic !== false)
     .map(([id, s]) => ({ id, ...s, closingAt: null }));
   return NextResponse.json(active, {
     headers: { 'Cache-Control': 'no-store' },

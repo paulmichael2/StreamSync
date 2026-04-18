@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Users, Radio, Film, Plus, X, ChevronDown, Check, Clock } from 'lucide-react';
+import { ArrowLeft, Users, Radio, Film, Plus, X, ChevronDown, Check, Clock, Globe, Lock } from 'lucide-react';
 import { getPusherClient } from '@/lib/pusherClient';
 import { Movie } from '@/lib/types';
 import { GRACE_MS } from '@/lib/roomConfig';
@@ -43,12 +43,13 @@ function formatCountdown(ms: number) {
 // ── Create Room Modal ────────────────────────────────────────────────────────
 function CreateRoomModal({ movies, onStart, onClose }: {
   movies: Movie[];
-  onStart: (name: string, movieId: string) => void;
+  onStart: (name: string, movieId: string, isPublic: boolean) => void;
   onClose: () => void;
 }) {
   const [name,     setName]     = useState('');
   const [movieId,  setMovieId]  = useState(movies[0]?.id ?? '');
   const [dropOpen, setDropOpen] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [error,    setError]    = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef  = useRef<HTMLDivElement>(null);
@@ -75,7 +76,7 @@ function CreateRoomModal({ movies, onStart, onClose }: {
     const t = name.trim();
     if (!t)       { setError('Please enter a display name'); return; }
     if (t.length < 2) { setError('Name must be at least 2 characters'); return; }
-    onStart(t, movieId);
+    onStart(t, movieId, isPublic);
   };
 
   return (
@@ -132,6 +133,32 @@ function CreateRoomModal({ movies, onStart, onClose }: {
                 placeholder="e.g. MovieFan42" maxLength={20}
                 className="w-full px-4 py-3 bg-white/5 border border-white/15 rounded-xl text-white placeholder-white/30 text-sm focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red transition-all" />
               {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
+            </div>
+
+            {/* Visibility */}
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Visibility</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setIsPublic(true)}
+                  className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all cursor-pointer ${
+                    isPublic
+                      ? 'bg-brand-red/15 border-brand-red text-brand-red'
+                      : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'
+                  }`}>
+                  <Globe size={14} /> Public
+                </button>
+                <button type="button" onClick={() => setIsPublic(false)}
+                  className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all cursor-pointer ${
+                    !isPublic
+                      ? 'bg-white/15 border-white/40 text-white'
+                      : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'
+                  }`}>
+                  <Lock size={14} /> Private
+                </button>
+              </div>
+              <p className="mt-1.5 text-xs text-white/35">
+                {isPublic ? 'Listed in the lobby — anyone can find and join' : 'Invite-only — share the link to let people join'}
+              </p>
             </div>
 
             <div className="bg-white/5 rounded-xl p-3 text-xs text-white/50 flex items-start gap-2">
@@ -279,9 +306,9 @@ export default function RoomsPage() {
     router.push(`/watch/${joinTarget.id}?movie=${movieId}&username=${encodeURIComponent(name)}`);
   };
 
-  const handleCreate = (name: string, movieId: string) => {
+  const handleCreate = (name: string, movieId: string, isPublic: boolean) => {
     const roomId = Math.random().toString(36).slice(2, 8);
-    router.push(`/watch/${roomId}?movie=${movieId}&username=${encodeURIComponent(name)}`);
+    router.push(`/watch/${roomId}?movie=${movieId}&username=${encodeURIComponent(name)}&public=${isPublic}`);
   };
 
   const activeRooms  = rooms.filter((r) => r.users.length > 0);

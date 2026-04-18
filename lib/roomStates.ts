@@ -10,6 +10,7 @@ export interface RoomState {
   currentTime: number;
   isPlaying: boolean;
   movieId: string;
+  isPublic: boolean;
   users: RoomUser[];
   updatedAt: number;
 }

@@ -9,14 +9,14 @@ const hasSupabase =
 
 function getOrCreate(roomId: string) {
   if (!roomStates[roomId]) {
-    roomStates[roomId] = { currentTime: 0, isPlaying: false, movieId: '', users: [], updatedAt: Date.now() };
+    roomStates[roomId] = { currentTime: 0, isPlaying: false, movieId: '', isPublic: true, users: [], updatedAt: Date.now() };
   }
   return roomStates[roomId];
 }
 
 export async function GET(req: NextRequest) {
   const roomId = req.nextUrl.searchParams.get('roomId') || '';
-  const state  = roomStates[roomId] ?? { currentTime: 0, isPlaying: false, movieId: '', users: [], updatedAt: 0 };
+  const state  = roomStates[roomId] ?? { currentTime: 0, isPlaying: false, movieId: '', isPublic: true, users: [], updatedAt: 0 };
   return NextResponse.json(state);
 }
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const { roomId, event, data } = await req.json();
   const room = getOrCreate(roomId);
 
-  // Payload to include in the rooms-updated broadcast (null = no broadcast needed)
+  // Payload to include in the rooms-updated broadcast (null = no broadcast)
   let roomsPayload: Record<string, unknown> | null = null;
 
   switch (event) {
@@ -42,29 +42,42 @@ export async function POST(req: NextRequest) {
       room.currentTime = data.currentTime ?? room.currentTime;
       break;
 
-    case 'user-joined':
+    case 'user-joined': {
+      const isPublic: boolean = data.isPublic !== false; // default public
       room.users = room.users.filter((u) => u.id !== data.id);
       room.users.push({ id: data.id, username: data.username });
       if (data.movieId) room.movieId = data.movieId;
+      room.isPublic  = isPublic;
       room.updatedAt = Date.now();
 
       if (hasSupabase) {
         const { supabase } = await import('@/lib/supabase');
+        // Try upsert with is_public; if column missing, retry without it
         const { error: e1 } = await supabase.from('room_sessions').upsert(
-          { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString() },
+          { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString(), is_public: isPublic },
           { onConflict: 'user_id,room_id' }
         );
-        if (e1) console.error('[room_sessions upsert]', JSON.stringify(e1));
+        if (e1) {
+          const { error: e1b } = await supabase.from('room_sessions').upsert(
+            { user_id: data.id, room_id: roomId, username: data.username, movie_id: data.movieId ?? '', updated_at: new Date().toISOString() },
+            { onConflict: 'user_id,room_id' }
+          );
+          if (e1b) console.error('[room_sessions upsert]', JSON.stringify(e1b));
+        }
         await supabase.from('room_closings').delete().eq('room_id', roomId);
       }
 
-      roomsPayload = {
-        action: 'user-joined',
-        roomId,
-        movieId: room.movieId,
-        user: { id: data.id, username: data.username },
-      };
+      // Only broadcast public rooms to the lobby
+      if (isPublic) {
+        roomsPayload = {
+          action: 'user-joined',
+          roomId,
+          movieId: room.movieId,
+          user: { id: data.id, username: data.username },
+        };
+      }
       break;
+    }
 
     case 'keepalive':
       room.updatedAt = Date.now();
@@ -77,6 +90,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
 
     case 'user-left': {
+      const isPublic: boolean = data.isPublic !== false; // default public
       room.users = room.users.filter((u) => u.id !== data.id);
       room.updatedAt = Date.now();
 
@@ -96,24 +110,32 @@ export async function POST(req: NextRequest) {
 
         if ((count ?? 0) === 0) {
           closingAt = Date.now() + GRACE_MS;
+          // Try upsert with is_public; if column missing, retry without it
           const { error: e3 } = await supabase.from('room_closings').upsert(
-            { room_id: roomId, movie_id: room.movieId || '', closed_at: new Date().toISOString() },
+            { room_id: roomId, movie_id: room.movieId || '', closed_at: new Date().toISOString(), is_public: isPublic },
             { onConflict: 'room_id' }
           );
-          if (e3) console.error('[room_closings upsert]', JSON.stringify(e3));
+          if (e3) {
+            const { error: e3b } = await supabase.from('room_closings').upsert(
+              { room_id: roomId, movie_id: room.movieId || '', closed_at: new Date().toISOString() },
+              { onConflict: 'room_id' }
+            );
+            if (e3b) console.error('[room_closings upsert]', JSON.stringify(e3b));
+          }
         }
       } else if (room.users.length === 0) {
         closingAt = Date.now() + GRACE_MS;
       }
 
-      roomsPayload = { action: 'user-left', roomId, movieId: room.movieId, userId: data.id, closingAt };
+      // Only broadcast public rooms to the lobby
+      if (isPublic) {
+        roomsPayload = { action: 'user-left', roomId, movieId: room.movieId, userId: data.id, closingAt };
+      }
       break;
     }
   }
 
-  // Broadcast rooms update with the specific change as payload so clients
-  // can update local state immediately without a round-trip to Supabase.
-  // Awaited with try-catch so a Pusher error never blocks the room-specific event.
+  // Broadcast rooms update — non-fatal, must not block room-specific event
   if (roomsPayload) {
     try {
       await pusherServer.trigger('rooms', 'rooms-updated', roomsPayload);

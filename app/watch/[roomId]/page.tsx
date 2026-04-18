@@ -24,6 +24,7 @@ function WatchPartyContent() {
 
   const roomId = params.roomId as string;
   const movieId = searchParams.get('movie') ?? '1';
+  const isPublic = searchParams.get('public') !== 'false'; // default public
   // If no username in URL, they arrived via invite link — show the join modal
   const urlUsername = searchParams.get('username');
 
@@ -94,7 +95,7 @@ function WatchPartyContent() {
     channel.bind('user-left', handleUserLeft);
 
     const announceTimer = setTimeout(() => {
-      triggerEvent(roomId, 'user-joined', { id, username, movieId });
+      triggerEvent(roomId, 'user-joined', { id, username, movieId, isPublic });
       setParticipants((prev) => {
         if (prev.find((p) => p.id === id)) return prev;
         return [...prev, { id, username }];
@@ -108,11 +109,11 @@ function WatchPartyContent() {
 
     // Use sendBeacon for leave so it fires even when the tab is closed
     const sendLeave = () => {
-      const payload = JSON.stringify({ roomId, event: 'user-left', data: { id, username } });
+      const payload = JSON.stringify({ roomId, event: 'user-left', data: { id, username, isPublic } });
       if (navigator.sendBeacon) {
         navigator.sendBeacon('/api/pusher', new Blob([payload], { type: 'application/json' }));
       } else {
-        triggerEvent(roomId, 'user-left', { id, username });
+        triggerEvent(roomId, 'user-left', { id, username, isPublic });
       }
     };
 
