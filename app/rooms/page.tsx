@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Users, Radio, Film, Plus, X, ChevronDown, Check, Clock } from 'lucide-react';
 import { getPusherClient } from '@/lib/pusherClient';
 import { Movie } from '@/lib/types';
+import { GRACE_MS } from '@/lib/roomConfig';
 import JoinModal from '@/components/JoinModal';
 
 interface RoomUser  { id: string; username: string; }
@@ -157,6 +158,7 @@ export default function RoomsPage() {
   const [joinTarget, setJoinTarget] = useState<ActiveRoom | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [now,        setNow]        = useState(Date.now());
+  const subscribedRoomsRef = useRef<Set<string>>(new Set());
 
   // Tick every second for countdowns
   useEffect(() => {
@@ -186,36 +188,15 @@ export default function RoomsPage() {
     return () => clearInterval(t);
   }, [fetchRooms]);
 
-  // Real-time via Pusher — apply changes directly to local state, no round-trip needed
+  // Global channel — detect brand-new rooms not yet in our list
   useEffect(() => {
-    const pusher  = getPusherClient();
-    const channel = pusher.subscribe('rooms');
-
-    channel.bind('rooms-updated', (payload: unknown) => {
-      const p = payload as {
-        action?: string;
-        roomId?: string;
-        movieId?: string;
-        user?: RoomUser;
-        userId?: string;
-        closingAt?: number | null;
-      } | null;
-
+    const pusher = getPusherClient();
+    const ch = pusher.subscribe('rooms');
+    ch.bind('rooms-updated', (payload: unknown) => {
+      const p = payload as { action?: string; roomId?: string; movieId?: string; user?: RoomUser } | null;
       if (p?.action === 'user-joined' && p.roomId && p.user) {
         setRooms((prev) => {
-          const existing = prev.find((r) => r.id === p.roomId);
-          if (existing) {
-            // User already in list (e.g. rejoined) — update and clear closingAt
-            if (existing.users.find((u) => u.id === p.user!.id)) {
-              return prev.map((r) => r.id === p.roomId ? { ...r, closingAt: null } : r);
-            }
-            return prev.map((r) =>
-              r.id === p.roomId
-                ? { ...r, users: [...r.users, p.user!], closingAt: null }
-                : r
-            );
-          }
-          // New room — create it
+          if (prev.find((r) => r.id === p.roomId)) return prev; // already known; room channel handles it
           return [...prev, {
             id: p.roomId!,
             movieId: p.movieId ?? '',
@@ -226,25 +207,43 @@ export default function RoomsPage() {
             closingAt: null,
           }];
         });
-      } else if (p?.action === 'user-left' && p.roomId) {
-        setRooms((prev) =>
-          prev.map((r) =>
-            r.id !== p.roomId
-              ? r
-              : { ...r, users: r.users.filter((u) => u.id !== p.userId), closingAt: p.closingAt ?? null }
-          )
-        );
-      } else {
-        // Unknown payload shape — fall back to a full re-fetch
-        fetchRooms();
       }
     });
+    return () => { ch.unbind_all(); pusher.unsubscribe('rooms'); };
+  }, []);
 
+  // Room-level channels — same real-time mechanism the watch page uses
+  useEffect(() => {
+    const pusher = getPusherClient();
+    rooms.forEach((room) => {
+      if (subscribedRoomsRef.current.has(room.id)) return;
+      subscribedRoomsRef.current.add(room.id);
+      const ch = pusher.subscribe(`room-${room.id}`);
+      ch.bind('user-joined', (d: { id: string; username: string }) => {
+        setRooms((prev) => prev.map((r) => r.id !== room.id ? r : {
+          ...r,
+          users: r.users.find((u) => u.id === d.id) ? r.users : [...r.users, { id: d.id, username: d.username }],
+          closingAt: null,
+        }));
+      });
+      ch.bind('user-left', (d: { id: string }) => {
+        setRooms((prev) => prev.map((r) => {
+          if (r.id !== room.id) return r;
+          const users = r.users.filter((u) => u.id !== d.id);
+          return { ...r, users, closingAt: users.length === 0 ? Date.now() + GRACE_MS : r.closingAt };
+        }));
+      });
+    });
+  }, [rooms]);
+
+  // Unmount: clean up all room-level subscriptions
+  useEffect(() => {
+    const pusher = getPusherClient();
     return () => {
-      channel.unbind('rooms-updated');
-      pusher.unsubscribe('rooms');
+      subscribedRoomsRef.current.forEach((id) => pusher.unsubscribe(`room-${id}`));
+      subscribedRoomsRef.current.clear();
     };
-  }, [fetchRooms]);
+  }, []);
 
   // Remove expired ghost rooms client-side so they vanish without a server round-trip
   useEffect(() => {
