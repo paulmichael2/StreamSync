@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, Film, Star, Clock, ArrowLeft,
-  CheckCircle, AlertCircle, Loader2, ExternalLink, Pencil, X
+  CheckCircle, AlertCircle, Loader2, ExternalLink, Pencil, X,
+  Lock, LogOut, KeyRound, Eye, EyeOff,
 } from 'lucide-react';
 import { Movie } from '@/lib/types';
 
@@ -36,6 +37,86 @@ export default function AdminPage() {
     { ...EMPTY_FORM, id: '' }
   );
   const [editLoading, setEditLoading] = useState(false);
+
+  // ── Auth state ──────────────────────────────────────────────────────────────
+  const [authStatus, setAuthStatus]   = useState<'loading' | 'in' | 'out'>('loading');
+  const [loginEmail, setLoginEmail]   = useState('');
+  const [loginPwd,   setLoginPwd]     = useState('');
+  const [loginErr,   setLoginErr]     = useState('');
+  const [loginBusy,  setLoginBusy]    = useState(false);
+  const [showLoginPwd, setShowLoginPwd] = useState(false);
+
+  // Change-password modal
+  const [showChangePwd,  setShowChangePwd]  = useState(false);
+  const [curPwd,         setCurPwd]         = useState('');
+  const [newPwd,         setNewPwd]         = useState('');
+  const [confirmPwd,     setConfirmPwd]     = useState('');
+  const [pwdErr,         setPwdErr]         = useState('');
+  const [pwdBusy,        setPwdBusy]        = useState(false);
+  const [showCurPwd,     setShowCurPwd]     = useState(false);
+  const [showNewPwd,     setShowNewPwd]     = useState(false);
+
+  // Verify session on mount
+  useEffect(() => {
+    fetch('/api/admin')
+      .then((r) => setAuthStatus(r.ok ? 'in' : 'out'))
+      .catch(() => setAuthStatus('out'));
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginBusy(true);
+    setLoginErr('');
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPwd }),
+      });
+      if (!res.ok) {
+        const j = await res.json();
+        setLoginErr(j.error || 'Login failed');
+        return;
+      }
+      setAuthStatus('in');
+      fetchMovies();
+    } catch {
+      setLoginErr('Network error, please try again');
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/admin', { method: 'DELETE' });
+    setAuthStatus('out');
+    setLoginEmail('');
+    setLoginPwd('');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdErr('');
+    if (newPwd !== confirmPwd) { setPwdErr('New passwords do not match'); return; }
+    if (newPwd.length < 6)     { setPwdErr('Password must be at least 6 characters'); return; }
+    setPwdBusy(true);
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: curPwd, newPassword: newPwd }),
+      });
+      const j = await res.json();
+      if (!res.ok) { setPwdErr(j.error || 'Failed to change password'); return; }
+      setShowChangePwd(false);
+      setCurPwd(''); setNewPwd(''); setConfirmPwd('');
+      showToast('success', 'Password changed successfully');
+    } catch {
+      setPwdErr('Network error, please try again');
+    } finally {
+      setPwdBusy(false);
+    }
+  };
 
   const showToast = (type: 'success' | 'error', msg: string) => {
     setToast({ type, msg });
@@ -164,8 +245,141 @@ export default function AdminPage() {
     }
   };
 
+  // ── Auth loading ────────────────────────────────────────────────────────────
+  if (authStatus === 'loading') {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-white/20 border-t-brand-red rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Login gate ───────────────────────────────────────────────────────────────
+  if (authStatus === 'out') {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-14 h-14 bg-brand-red/20 rounded-2xl flex items-center justify-center mb-4">
+              <Lock size={24} className="text-brand-red" />
+            </div>
+            <h1 className="text-2xl font-black text-white">Admin Login</h1>
+            <p className="text-white/40 text-sm mt-1">HeartSync Content Manager</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="bg-[#111] border border-white/10 rounded-2xl p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-white/60 mb-1.5">Email</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => { setLoginEmail(e.target.value); setLoginErr(''); }}
+                placeholder="admin@gmail.com"
+                required
+                autoFocus
+                className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-red/60 focus:ring-1 focus:ring-brand-red/30 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-white/60 mb-1.5">Password</label>
+              <div className="relative">
+                <input
+                  type={showLoginPwd ? 'text' : 'password'}
+                  value={loginPwd}
+                  onChange={(e) => { setLoginPwd(e.target.value); setLoginErr(''); }}
+                  placeholder="••••••••"
+                  required
+                  className="w-full px-3 py-2.5 pr-10 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-red/60 focus:ring-1 focus:ring-brand-red/30 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPwd((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                >
+                  {showLoginPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            {loginErr && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs">
+                <AlertCircle size={13} /> {loginErr}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginBusy}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-brand-red text-white font-bold rounded-xl hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition-all cursor-pointer"
+            >
+              {loginBusy ? <><Loader2 size={16} className="animate-spin" /> Signing in…</> : 'Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
+      {/* Change Password Modal */}
+      {showChangePwd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-[#111] border border-white/10 rounded-2xl overflow-hidden shadow-2xl animate-scale-in">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/8">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 bg-brand-red/20 rounded-lg flex items-center justify-center">
+                  <KeyRound size={14} className="text-brand-red" />
+                </div>
+                <h2 className="font-semibold text-white text-sm">Change Password</h2>
+              </div>
+              <button onClick={() => { setShowChangePwd(false); setPwdErr(''); }} className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="p-5 space-y-4">
+              {[
+                { label: 'Current Password',  val: curPwd,     set: setCurPwd,     show: showCurPwd, toggle: () => setShowCurPwd(v => !v) },
+                { label: 'New Password',       val: newPwd,     set: setNewPwd,     show: showNewPwd, toggle: () => setShowNewPwd(v => !v) },
+                { label: 'Confirm New Password', val: confirmPwd, set: setConfirmPwd, show: showNewPwd, toggle: () => setShowNewPwd(v => !v) },
+              ].map(({ label, val, set, show, toggle }) => (
+                <div key={label}>
+                  <label className="block text-xs font-medium text-white/60 mb-1.5">{label}</label>
+                  <div className="relative">
+                    <input
+                      type={show ? 'text' : 'password'}
+                      value={val}
+                      onChange={(e) => { set(e.target.value); setPwdErr(''); }}
+                      placeholder="••••••••"
+                      required
+                      className="w-full px-3 py-2.5 pr-10 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-red/60 focus:ring-1 focus:ring-brand-red/30 transition-all"
+                    />
+                    <button type="button" onClick={toggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer">
+                      {show ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {pwdErr && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs">
+                  <AlertCircle size={13} /> {pwdErr}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => { setShowChangePwd(false); setPwdErr(''); }} className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/60 text-sm font-semibold hover:bg-white/5 transition-all cursor-pointer">Cancel</button>
+                <button type="submit" disabled={pwdBusy} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-brand-red text-white font-bold rounded-xl hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition-all cursor-pointer text-sm">
+                  {pwdBusy ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && (
         <div
@@ -374,9 +588,27 @@ export default function AdminPage() {
               <p className="text-xs text-white/40">Add and manage your movie library</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white/60">
-            <Film size={13} />
-            <span>{movies.length} movies</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white/60">
+              <Film size={13} />
+              <span>{movies.length} movies</span>
+            </div>
+            <button
+              onClick={() => setShowChangePwd(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white/60 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+              title="Change password"
+            >
+              <KeyRound size={13} />
+              <span className="hidden sm:inline">Password</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white/60 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+              title="Logout"
+            >
+              <LogOut size={13} />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         </div>
       </header>
