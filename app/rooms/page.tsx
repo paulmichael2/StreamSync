@@ -303,11 +303,14 @@ export default function RoomsPage() {
   const handleJoin = (name: string) => {
     if (!joinTarget) return;
     const movieId = joinTarget.movieId || movies[0]?.id || '1';
+    try { sessionStorage.setItem('heartsync_username', name); } catch { /* ignore */ }
     router.push(`/watch/${joinTarget.id}?movie=${movieId}&username=${encodeURIComponent(name)}`);
   };
 
   const handleCreate = (name: string, movieId: string, isPublic: boolean) => {
     const roomId = Math.random().toString(36).slice(2, 8);
+    // Persist name so the watch page can auto-join even if the URL param is stripped
+    try { sessionStorage.setItem('heartsync_username', name); } catch { /* ignore */ }
     router.push(`/watch/${roomId}?movie=${movieId}&username=${encodeURIComponent(name)}&public=${isPublic}`);
   };
 

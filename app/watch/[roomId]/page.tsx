@@ -25,8 +25,9 @@ function WatchPartyContent() {
   const roomId = params.roomId as string;
   const movieId = searchParams.get('movie') ?? '1';
   const isPublic = searchParams.get('public') !== 'false'; // default public
-  // If no username in URL, they arrived via invite link — show the join modal
-  const urlUsername = searchParams.get('username');
+  // If no username in URL, fall back to sessionStorage (set when creating/joining from lobby)
+  const urlUsername = searchParams.get('username') ||
+    (() => { try { return sessionStorage.getItem('heartsync_username') ?? ''; } catch { return ''; } })();
 
   const [movie, setMovie] = useState<Movie | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -34,7 +35,7 @@ function WatchPartyContent() {
   const [initialPlaying, setInitialPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
-  // Show modal if no username provided (invite link) or if username is generic
+  // Show modal only if no username from URL or sessionStorage
   const [showJoinModal, setShowJoinModal] = useState(!urlUsername);
   const [username, setUsername] = useState(urlUsername ?? '');
   const [hasJoined, setHasJoined] = useState(!!urlUsername);
@@ -140,6 +141,7 @@ function WatchPartyContent() {
     setUsername(name);
     setHasJoined(true);
     setShowJoinModal(false);
+    try { sessionStorage.setItem('heartsync_username', name); } catch { /* ignore */ }
     // Update URL with their chosen username (without triggering a navigation)
     const url = new URL(window.location.href);
     url.searchParams.set('username', name);
