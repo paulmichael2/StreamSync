@@ -57,8 +57,9 @@ export default function VideoPlayer({
   const videoRef      = useRef<HTMLVideoElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const progressRef   = useRef<HTMLDivElement>(null);
-  const isSyncing     = useRef(false);
-  const controlsTimer = useRef<ReturnType<typeof setTimeout>>();
+  const isSyncing       = useRef(false);
+  const syncHostLock    = useRef(false); // prevents applying multiple sync-host responses at once
+  const controlsTimer   = useRef<ReturnType<typeof setTimeout>>();
 
   const [isPlaying,       setIsPlaying]       = useState(false);
   const [currentTime,     setCurrentTime]     = useState(0);
@@ -177,10 +178,37 @@ export default function VideoPlayer({
       flashSync();
     });
 
+    // When a new viewer joins, existing members broadcast their current state so the
+    // joiner can snap to the right position and play/pause state immediately.
+    const handleUserJoinedSync = () => {
+      if (!videoRef.current) return;
+      triggerEvent(roomId, 'sync-host', {
+        currentTime: videoRef.current.currentTime,
+        isPlaying: !videoRef.current.paused,
+      });
+    };
+    channel.bind('user-joined', handleUserJoinedSync);
+
+    // New joiner receives sync-host — apply only the first response (cooldown prevents
+    // applying one from every existing member in large rooms).
+    channel.bind('sync-host', ({ currentTime: ct, isPlaying: ip }: { currentTime: number; isPlaying: boolean }) => {
+      if (!videoRef.current || syncHostLock.current) return;
+      syncHostLock.current = true;
+      setTimeout(() => { syncHostLock.current = false; }, 2000);
+      isSyncing.current = true;
+      videoRef.current.currentTime = ct;
+      if (ip) videoRef.current.play().catch(() => {});
+      else videoRef.current.pause();
+      setTimeout(() => { isSyncing.current = false; }, 300);
+      flashSync();
+    });
+
     return () => {
       channel.unbind('play');
       channel.unbind('pause');
       channel.unbind('seek');
+      channel.unbind('user-joined', handleUserJoinedSync);
+      channel.unbind('sync-host');
     };
   }, [roomId, flashSync]);
 
