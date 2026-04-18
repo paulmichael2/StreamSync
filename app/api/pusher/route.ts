@@ -17,6 +17,19 @@ function getOrCreate(roomId: string) {
 export async function GET(req: NextRequest) {
   const roomId = req.nextUrl.searchParams.get('roomId') || '';
   const state  = roomStates[roomId] ?? { currentTime: 0, isPlaying: false, movieId: '', isPublic: true, users: [], updatedAt: 0 };
+
+  // On serverless/Vercel the in-memory users list may be empty while Supabase has the real list.
+  // Always return the Supabase participants so late-joiners see everyone already in the room.
+  if (hasSupabase) {
+    const { supabase } = await import('@/lib/supabase');
+    const { data: rows } = await supabase
+      .from('room_sessions')
+      .select('user_id, username')
+      .eq('room_id', roomId);
+    const users = (rows ?? []).map((r) => ({ id: r.user_id, username: r.username }));
+    return NextResponse.json({ ...state, users });
+  }
+
   return NextResponse.json(state);
 }
 
