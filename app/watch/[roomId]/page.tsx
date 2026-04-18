@@ -94,13 +94,16 @@ function WatchPartyContent() {
     channel.bind('user-joined', handleUserJoined);
     channel.bind('user-left', handleUserLeft);
 
+    // Announce immediately so the session is written to Supabase before anything else
+    triggerEvent(roomId, 'user-joined', { id, username, movieId, isPublic });
+
+    // Add self to participants list on next tick (after initial room state is fetched)
     const announceTimer = setTimeout(() => {
-      triggerEvent(roomId, 'user-joined', { id, username, movieId, isPublic });
       setParticipants((prev) => {
         if (prev.find((p) => p.id === id)) return prev;
         return [...prev, { id, username }];
       });
-    }, 50);
+    }, 100);
 
     // Keepalive: refresh updated_at in Supabase every 4 minutes so sessions don't get cleaned up
     const keepaliveInterval = setInterval(() => {
