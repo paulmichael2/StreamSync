@@ -4,6 +4,19 @@ import { verifyToken } from '@/lib/adminAuth';
 
 const COOKIE = 'heartsync_admin';
 
+// Temporary debug endpoint — remove after confirming env vars are set
+export async function GET() {
+  const cookieStore = await cookies();
+  if (!verifyToken(cookieStore.get(COOKIE)?.value)) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+  return NextResponse.json({
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    serviceKeyPrefix: process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 10) ?? 'NOT SET',
+  });
+}
+
 export async function POST(req: NextRequest) {
   // Require admin session
   const cookieStore = await cookies();
