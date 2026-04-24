@@ -98,7 +98,7 @@ export default function JoinModal({ movieTitle, onJoin, onClose }: JoinModalProp
                   setUsername(e.target.value);
                   setError('');
                 }}
-                placeholder="e.g. MovieFan42"
+                placeholder="e.g. heartcute"
                 maxLength={20}
                 className="w-full px-4 py-3 bg-white/5 border border-white/15 rounded-xl text-white placeholder-white/30 text-sm
                   focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red transition-all"
