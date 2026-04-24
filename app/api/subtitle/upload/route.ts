@@ -39,13 +39,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'File too large (max 2MB)' }, { status: 400 });
   }
 
-  const { supabase } = await import('@/lib/supabase');
+  const { supabaseAdmin } = await import('@/lib/supabaseAdmin');
+
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { error: 'SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to your environment variables.' },
+      { status: 503 }
+    );
+  }
 
   const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
-  const { error } = await supabase.storage
+  const { error } = await supabaseAdmin.storage
     .from('subtitles')
     .upload(filename, buffer, {
       contentType: ext === 'vtt' ? 'text/vtt' : 'application/x-subrip',
@@ -53,7 +60,6 @@ export async function POST(req: NextRequest) {
     });
 
   if (error) {
-    // Bucket may not exist — give a helpful message
     if (error.message?.includes('not found') || error.message?.includes('Bucket')) {
       return NextResponse.json(
         { error: 'Supabase "subtitles" storage bucket not found. Create it in your Supabase dashboard (Storage → New bucket → "subtitles", Public).' },
@@ -63,7 +69,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const { data: publicData } = supabase.storage.from('subtitles').getPublicUrl(filename);
+  const { data: publicData } = supabaseAdmin.storage.from('subtitles').getPublicUrl(filename);
 
   return NextResponse.json({ url: publicData.publicUrl });
 }
