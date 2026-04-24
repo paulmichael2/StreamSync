@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, Film, Star, Clock, ArrowLeft,
   CheckCircle, AlertCircle, Loader2, ExternalLink, Pencil, X,
-  Lock, LogOut, KeyRound, Eye, EyeOff,
+  Lock, LogOut, KeyRound, Eye, EyeOff, Upload, Link,
 } from 'lucide-react';
 import { Movie } from '@/lib/types';
 
@@ -37,6 +37,12 @@ export default function AdminPage() {
     { ...EMPTY_FORM, id: '' }
   );
   const [editLoading, setEditLoading] = useState(false);
+
+  // Subtitle upload state
+  const [subtitleMode,     setSubtitleMode]     = useState<'link' | 'upload'>('link');
+  const [subtitleUploading, setSubtitleUploading] = useState(false);
+  const [editSubtitleMode,     setEditSubtitleMode]     = useState<'link' | 'upload'>('link');
+  const [editSubtitleUploading, setEditSubtitleUploading] = useState(false);
 
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [authStatus, setAuthStatus]   = useState<'loading' | 'in' | 'out'>('loading');
@@ -205,6 +211,27 @@ export default function AdminPage() {
 
   const handleEditChange = (field: string, value: string) => {
     setEditForm((f) => ({ ...f, [field]: value }));
+  };
+
+  const uploadSubtitle = async (
+    file: File,
+    setUrl: (url: string) => void,
+    setBusy: (v: boolean) => void,
+  ) => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/subtitle/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) { showToast('error', json.error || 'Upload failed'); return; }
+      setUrl(json.url);
+      showToast('success', 'Subtitle uploaded!');
+    } catch {
+      showToast('error', 'Upload failed — check your connection');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -531,19 +558,49 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* Subtitle URL */}
+              {/* Subtitle */}
               <div>
-                <label className="block text-xs font-medium text-white/60 mb-1.5">
-                  Subtitle URL <span className="text-white/30">(optional — .srt or .vtt)</span>
-                </label>
-                <input
-                  type="url"
-                  value={editForm.subtitleUrl}
-                  onChange={(e) => handleEditChange('subtitleUrl', e.target.value)}
-                  placeholder="https://example.com/movie.srt"
-                  className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm
-                    placeholder-white/25 focus:outline-none focus:border-brand-red/60 transition-all"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-white/60">
+                    Subtitle <span className="text-white/30">(optional)</span>
+                  </label>
+                  <div className="flex rounded-lg overflow-hidden border border-white/10 text-[11px]">
+                    <button type="button" onClick={() => setEditSubtitleMode('link')}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors cursor-pointer ${editSubtitleMode === 'link' ? 'bg-brand-red text-white' : 'text-white/40 hover:text-white'}`}>
+                      <Link size={10} /> Link
+                    </button>
+                    <button type="button" onClick={() => setEditSubtitleMode('upload')}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors cursor-pointer ${editSubtitleMode === 'upload' ? 'bg-brand-red text-white' : 'text-white/40 hover:text-white'}`}>
+                      <Upload size={10} /> Upload
+                    </button>
+                  </div>
+                </div>
+                {editSubtitleMode === 'link' ? (
+                  <input
+                    type="url"
+                    value={editForm.subtitleUrl}
+                    onChange={(e) => handleEditChange('subtitleUrl', e.target.value)}
+                    placeholder="https://example.com/movie.srt"
+                    className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-red/60 transition-all"
+                  />
+                ) : (
+                  <div>
+                    <label className={`flex items-center justify-center gap-2 w-full px-3 py-3 border-2 border-dashed rounded-lg text-sm transition-all cursor-pointer ${editSubtitleUploading ? 'border-white/20 text-white/30' : 'border-white/15 text-white/40 hover:border-brand-red/50 hover:text-white/70'}`}>
+                      {editSubtitleUploading
+                        ? <><Loader2 size={14} className="animate-spin" /> Uploading…</>
+                        : <><Upload size={14} /> Choose .srt or .vtt file</>
+                      }
+                      <input type="file" accept=".srt,.vtt" className="hidden" disabled={editSubtitleUploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) uploadSubtitle(f, (url) => handleEditChange('subtitleUrl', url), setEditSubtitleUploading);
+                        }} />
+                    </label>
+                    {editForm.subtitleUrl && (
+                      <p className="mt-1.5 text-[10px] text-green-400 truncate">✓ {editForm.subtitleUrl.split('/').pop()}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
@@ -772,21 +829,49 @@ export default function AdminPage() {
                 <p className="mt-1 text-[10px] text-white/30">Direct .mp4 or .webm URL required</p>
               </div>
 
-              {/* Subtitle URL */}
+              {/* Subtitle */}
               <div>
-                <label htmlFor="subtitleUrl" className="block text-xs font-medium text-white/60 mb-1.5">
-                  Subtitle URL <span className="text-white/30">(optional — .srt or .vtt)</span>
-                </label>
-                <input
-                  id="subtitleUrl"
-                  type="url"
-                  value={form.subtitleUrl}
-                  onChange={(e) => handleChange('subtitleUrl', e.target.value)}
-                  placeholder="https://example.com/movie.srt"
-                  className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm
-                    placeholder-white/25 focus:outline-none focus:border-brand-red/60 transition-all"
-                />
-                <p className="mt-1 text-[10px] text-white/30">Paste a direct link to your .srt or .vtt subtitle file</p>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-white/60">
+                    Subtitle <span className="text-white/30">(optional)</span>
+                  </label>
+                  <div className="flex rounded-lg overflow-hidden border border-white/10 text-[11px]">
+                    <button type="button" onClick={() => setSubtitleMode('link')}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors cursor-pointer ${subtitleMode === 'link' ? 'bg-brand-red text-white' : 'text-white/40 hover:text-white'}`}>
+                      <Link size={10} /> Link
+                    </button>
+                    <button type="button" onClick={() => setSubtitleMode('upload')}
+                      className={`flex items-center gap-1 px-2.5 py-1 transition-colors cursor-pointer ${subtitleMode === 'upload' ? 'bg-brand-red text-white' : 'text-white/40 hover:text-white'}`}>
+                      <Upload size={10} /> Upload
+                    </button>
+                  </div>
+                </div>
+                {subtitleMode === 'link' ? (
+                  <input
+                    type="url"
+                    value={form.subtitleUrl}
+                    onChange={(e) => handleChange('subtitleUrl', e.target.value)}
+                    placeholder="https://example.com/movie.srt"
+                    className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-red/60 transition-all"
+                  />
+                ) : (
+                  <div>
+                    <label className={`flex items-center justify-center gap-2 w-full px-3 py-3 border-2 border-dashed rounded-lg text-sm transition-all cursor-pointer ${subtitleUploading ? 'border-white/20 text-white/30' : 'border-white/15 text-white/40 hover:border-brand-red/50 hover:text-white/70'}`}>
+                      {subtitleUploading
+                        ? <><Loader2 size={14} className="animate-spin" /> Uploading…</>
+                        : <><Upload size={14} /> Choose .srt or .vtt file</>
+                      }
+                      <input type="file" accept=".srt,.vtt" className="hidden" disabled={subtitleUploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) uploadSubtitle(f, (url) => handleChange('subtitleUrl', url), setSubtitleUploading);
+                        }} />
+                    </label>
+                    {form.subtitleUrl && (
+                      <p className="mt-1.5 text-[10px] text-green-400 truncate">✓ {form.subtitleUrl.split('/').pop()}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Submit */}
