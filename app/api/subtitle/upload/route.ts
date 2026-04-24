@@ -39,11 +39,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'File too large (max 2MB)' }, { status: 400 });
   }
 
-  const { supabaseAdmin } = await import('@/lib/supabaseAdmin');
+  const { getSupabaseAdmin } = await import('@/lib/supabaseAdmin');
+  const supabaseAdmin = getSupabaseAdmin();
 
   if (!supabaseAdmin) {
     return NextResponse.json(
-      { error: 'SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to your environment variables.' },
+      { error: 'SUPABASE_SERVICE_ROLE_KEY is not set in environment variables.' },
       { status: 503 }
     );
   }
