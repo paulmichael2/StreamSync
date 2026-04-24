@@ -4,10 +4,6 @@ import { verifyToken } from '@/lib/adminAuth';
 
 const COOKIE = 'heartsync_admin';
 
-const hasSupabase =
-  !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder');
-
 export async function POST(req: NextRequest) {
   // Require admin session
   const cookieStore = await cookies();
@@ -15,9 +11,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  if (!hasSupabase) {
+  // Read env vars at request time (not build time)
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const serviceRoleKey  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+
+  if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+    return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
+  }
+
+  if (!serviceRoleKey) {
     return NextResponse.json(
-      { error: 'File upload requires Supabase storage. Use a direct URL instead.' },
+      { error: 'SUPABASE_SERVICE_ROLE_KEY is not set. Add it in Vercel → Settings → Environment Variables.' },
       { status: 503 }
     );
   }
@@ -34,26 +38,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Only .srt and .vtt files are supported' }, { status: 400 });
   }
 
-  // Max 2MB
   if (file.size > 2 * 1024 * 1024) {
     return NextResponse.json({ error: 'File too large (max 2MB)' }, { status: 400 });
   }
 
-  const { getSupabaseAdmin } = await import('@/lib/supabaseAdmin');
-  const supabaseAdmin = getSupabaseAdmin();
-
-  if (!supabaseAdmin) {
-    return NextResponse.json(
-      { error: 'SUPABASE_SERVICE_ROLE_KEY is not set in environment variables.' },
-      { status: 503 }
-    );
-  }
+  const { createClient } = await import('@supabase/supabase-js');
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+  });
 
   const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { error } = await supabaseAdmin.storage
+  const { error } = await admin.storage
     .from('subtitles')
     .upload(filename, buffer, {
       contentType: ext === 'vtt' ? 'text/vtt' : 'application/x-subrip',
@@ -63,14 +61,13 @@ export async function POST(req: NextRequest) {
   if (error) {
     if (error.message?.includes('not found') || error.message?.includes('Bucket')) {
       return NextResponse.json(
-        { error: 'Supabase "subtitles" storage bucket not found. Create it in your Supabase dashboard (Storage → New bucket → "subtitles", Public).' },
+        { error: 'Bucket "subtitles" not found. Go to Supabase → Storage → New bucket → name "subtitles", enable Public.' },
         { status: 503 }
       );
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const { data: publicData } = supabaseAdmin.storage.from('subtitles').getPublicUrl(filename);
-
+  const { data: publicData } = admin.storage.from('subtitles').getPublicUrl(filename);
   return NextResponse.json({ url: publicData.publicUrl });
 }
