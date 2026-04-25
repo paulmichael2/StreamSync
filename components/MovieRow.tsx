@@ -52,9 +52,9 @@ export default function MovieRow({ title, movies }: MovieRowProps) {
           className="flex gap-3 overflow-x-auto scrollbar-hide px-4 sm:px-6 lg:px-8 max-w-[1800px] mx-auto pb-2"
           style={{ scrollSnapType: 'x mandatory' }}
         >
-          {movies.map((movie) => (
+          {movies.map((movie, i) => (
             <div key={movie.id} style={{ scrollSnapAlign: 'start' }}>
-              <MovieCard movie={movie} />
+              <MovieCard movie={movie} priority={i < 4} />
             </div>
           ))}
         </div>
