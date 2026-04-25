@@ -45,7 +45,10 @@ export default function MovieCard({ movie, priority = false }: MovieCardProps) {
 
   return (
     <>
-      <div className="movie-card relative rounded-lg overflow-hidden cursor-pointer group flex-shrink-0 w-[180px] sm:w-[200px] lg:w-[220px]">
+      <div
+        className="movie-card relative rounded-lg overflow-hidden cursor-pointer group flex-shrink-0 w-[180px] sm:w-[200px] lg:w-[220px]"
+        onClick={() => router.push(`/movie/${movie.id}`)}
+      >
         {/* Thumbnail */}
         <div className="aspect-[2/3] relative bg-brand-muted">
           {/* Shimmer shown while loading */}

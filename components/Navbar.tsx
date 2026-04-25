@@ -66,7 +66,7 @@ export default function Navbar() {
 
   const goToMovie = (movie: Movie) => {
     closeSearch();
-    router.push(`/watch/preview-${movie.id}?movie=${movie.id}&username=Guest`);
+    router.push(`/movie/${movie.id}`);
   };
 
   return (

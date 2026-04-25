@@ -25,7 +25,7 @@ async function getMovies(): Promise<Movie[]> {
         genre: row.genre,
         genres: row.genres,
         year: row.year,
-        rating: row.rating,
+  rating: row.rating,
         thumbnail: row.thumbnail,
         backdrop: row.backdrop,
         videoUrl: row.video_url,
@@ -45,7 +45,11 @@ export const revalidate = 0; // Always fetch fresh data
 
 export default async function HomePage() {
   const movies = await getMovies();
-  const featured = movies.find((m) => m.featured) ?? movies[0];
+  // Pick up to 8 high-rated movies for the hero slideshow
+  const heroMovies = [...movies]
+    .filter((m) => m.backdrop)
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, 8);
 
   const trending = [...movies].sort((a, b) => b.rating - a.rating);
   const animation = movies.filter((m) => m.genres?.includes('Animation'));
@@ -57,7 +61,7 @@ export default async function HomePage() {
     <main className="min-h-screen bg-black">
       <Navbar />
 
-      {featured && <HeroSection movie={featured} />}
+      {heroMovies.length > 0 && <HeroSection movies={heroMovies} />}
 
       <div className="relative z-10 -mt-16 pb-16">
         <MovieRow title="Trending Now" movies={trending} />

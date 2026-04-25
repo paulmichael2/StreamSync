@@ -21,6 +21,29 @@ function writeLocal(movies: Movie[]) {
   fs.writeFileSync(moviesPath, JSON.stringify(movies, null, 2));
 }
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
+  const { id } = await Promise.resolve(params);
+
+  if (hasSupabase) {
+    const { supabase } = await import('@/lib/supabase');
+    const { data, error } = await supabase.from('movies').select('*').eq('id', id).single();
+    if (error || !data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({
+      id: data.id, title: data.title, description: data.description,
+      genre: data.genre, genres: data.genres, year: data.year, rating: data.rating,
+      thumbnail: data.thumbnail, backdrop: data.backdrop, videoUrl: data.video_url,
+      duration: data.duration, featured: data.featured, subtitleUrl: data.subtitle_url ?? '',
+    });
+  }
+
+  const movie = readLocal().find((m) => m.id === id);
+  if (!movie) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  return NextResponse.json(movie);
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
