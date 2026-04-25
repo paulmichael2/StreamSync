@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, Film, Star, Clock, ArrowLeft,
   CheckCircle, AlertCircle, Loader2, ExternalLink, Pencil, X,
-  Lock, LogOut, KeyRound, Eye, EyeOff, Upload, Link,
+  Lock, LogOut, KeyRound, Eye, EyeOff, Upload, Link, FileJson,
 } from 'lucide-react';
 import { Movie } from '@/lib/types';
 
@@ -37,6 +37,30 @@ export default function AdminPage() {
     { ...EMPTY_FORM, id: '' }
   );
   const [editLoading, setEditLoading] = useState(false);
+
+  // JSON import state
+  const [importBusy, setImportBusy] = useState(false);
+
+  const handleImportJson = async (file: File) => {
+    setImportBusy(true);
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const res = await fetch('/api/movies/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(json),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast('error', data.error || 'Import failed'); return; }
+      showToast('success', data.message);
+      fetchMovies();
+    } catch {
+      showToast('error', 'Invalid JSON file');
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   // Subtitle upload state
   const [subtitleMode,     setSubtitleMode]     = useState<'link' | 'upload'>('link');
@@ -894,6 +918,11 @@ export default function AdminPage() {
         <section className="lg:col-span-3">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-white">Library ({movies.length})</h2>
+            <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${importBusy ? 'border-white/10 text-white/30' : 'border-white/15 text-white/60 hover:text-white hover:border-white/30 hover:bg-white/5'}`}>
+              {importBusy ? <><Loader2 size={13} className="animate-spin" /> Importing…</> : <><FileJson size={13} /> Import JSON</>}
+              <input type="file" accept=".json" className="hidden" disabled={importBusy}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportJson(f); e.target.value = ''; }} />
+            </label>
           </div>
 
           {fetchLoading ? (
