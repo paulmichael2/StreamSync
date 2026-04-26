@@ -92,6 +92,11 @@ export default function VideoPlayer({
 
   const trackSrc = subtitleUrl ? `/api/subtitle?url=${encodeURIComponent(subtitleUrl)}` : null;
 
+  // Route HLS streams through our proxy to avoid CDN CORS blocks
+  const effectiveVideoUrl = videoUrl.includes('.m3u8')
+    ? `/api/proxy?url=${encodeURIComponent(videoUrl)}`
+    : videoUrl;
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   const flashSync = useCallback(() => {
@@ -137,7 +142,8 @@ export default function VideoPlayer({
           backBufferLength: 90,
         });
         hlsRef.current = hls;
-        hls.loadSource(videoUrl);
+        // Use proxied URL so all segment fetches go through our domain (avoids CDN CORS blocks)
+        hls.loadSource(effectiveVideoUrl);
         hls.attachMedia(videoRef.current);
         hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal: boolean; type: string }) => {
           if (data.fatal) {
@@ -147,8 +153,8 @@ export default function VideoPlayer({
           }
         });
       } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari has native HLS support
-        videoRef.current.src = videoUrl;
+        // Safari: native HLS — proxy the manifest so segment URLs also get rewritten
+        videoRef.current.src = effectiveVideoUrl;
       }
     });
 
@@ -159,7 +165,7 @@ export default function VideoPlayer({
         hlsRef.current = null;
       }
     };
-  }, [videoUrl]);
+  }, [videoUrl, effectiveVideoUrl]);
 
   // ── subtitle cue tracking (custom renderer for size/position control) ────
 
