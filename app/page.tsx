@@ -2,6 +2,7 @@ import { Movie } from '@/lib/types';
 import Navbar from '@/components/Navbar';
 import HeroSection from '@/components/HeroSection';
 import MovieRow from '@/components/MovieRow';
+import LazyMovieRow from '@/components/LazyMovieRow';
 import fs from 'fs';
 import path from 'path';
 
@@ -25,15 +26,15 @@ async function getMovies(): Promise<Movie[]> {
         genre: row.genre,
         genres: row.genres,
         year: row.year,
-  rating: row.rating,
+        rating: row.rating,
         thumbnail: row.thumbnail,
         backdrop: row.backdrop,
         videoUrl: row.video_url,
         duration: row.duration,
         featured: row.featured,
+        subtitleUrl: row.subtitle_url ?? '',
       }));
     }
-    // Local fallback
     const data = fs.readFileSync(path.join(process.cwd(), 'data', 'movies.json'), 'utf-8');
     return JSON.parse(data);
   } catch {
@@ -41,21 +42,25 @@ async function getMovies(): Promise<Movie[]> {
   }
 }
 
-export const revalidate = 0; // Always fetch fresh data
+export const revalidate = 0;
+
+const CAP = 20; // max cards per row
 
 export default async function HomePage() {
   const movies = await getMovies();
-  // Pick up to 8 high-rated movies for the hero slideshow
+
   const heroMovies = [...movies]
     .filter((m) => m.backdrop)
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 8);
 
-  const trending = [...movies].sort((a, b) => b.rating - a.rating);
-  const animation = movies.filter((m) => m.genres?.includes('Animation'));
-  const action = movies.filter((m) => m.genres?.includes('Action'));
-  const drama = movies.filter((m) => m.genres?.includes('Drama') || m.genres?.includes('Sci-Fi'));
-  const recent = [...movies].sort((a, b) => b.year - a.year);
+  // Each row capped at CAP to keep DOM size manageable
+  const trending   = [...movies].sort((a, b) => b.rating - a.rating).slice(0, CAP);
+  const animation  = movies.filter((m) => m.genres?.includes('Animation')).slice(0, CAP);
+  const action     = movies.filter((m) => m.genres?.includes('Action')).slice(0, CAP);
+  const horror     = movies.filter((m) => m.genres?.includes('Horror')).slice(0, CAP);
+  const drama      = movies.filter((m) => m.genres?.includes('Drama') || m.genres?.includes('Sci-Fi')).slice(0, CAP);
+  const recent     = [...movies].sort((a, b) => b.year - a.year).slice(0, CAP);
 
   return (
     <main className="min-h-screen bg-black">
@@ -64,12 +69,15 @@ export default async function HomePage() {
       {heroMovies.length > 0 && <HeroSection movies={heroMovies} />}
 
       <div className="relative z-10 -mt-16 pb-16">
+        {/* First row renders immediately (above fold) */}
         <MovieRow title="Trending Now" movies={trending} />
-        <MovieRow title="All Movies" movies={movies} />
-        {animation.length > 0 && <MovieRow title="Animation" movies={animation} />}
-        {action.length > 0 && <MovieRow title="Action & Thrills" movies={action} />}
-        {drama.length > 0 && <MovieRow title="Drama & Sci-Fi" movies={drama} />}
-        <MovieRow title="Recently Added" movies={recent} />
+
+        {/* All remaining rows are lazy — only mount when scrolled near */}
+        {animation.length > 0  && <LazyMovieRow title="Animation"      movies={animation} />}
+        {action.length > 0     && <LazyMovieRow title="Action & Thrills" movies={action} />}
+        {horror.length > 0     && <LazyMovieRow title="Horror"          movies={horror} />}
+        {drama.length > 0      && <LazyMovieRow title="Drama & Sci-Fi"  movies={drama} />}
+        <LazyMovieRow title="Recently Added" movies={recent} />
       </div>
 
       <footer className="border-t border-white/5 px-4 sm:px-6 lg:px-8 py-12 max-w-[1800px] mx-auto">
