@@ -5,6 +5,7 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Settings, Users, Wifi, ChevronLeft, Check,
 } from 'lucide-react';
+import Hls from 'hls.js';
 import { getPusherClient } from '@/lib/pusherClient';
 import { Participant } from '@/lib/types';
 
@@ -58,6 +59,7 @@ export default function VideoPlayer({
   const videoRef      = useRef<HTMLVideoElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const progressRef   = useRef<HTMLDivElement>(null);
+  const hlsRef          = useRef<Hls | null>(null);
   const isSyncing       = useRef(false);
   const syncHostLock    = useRef(false); // prevents applying multiple sync-host responses at once
   const controlsTimer   = useRef<ReturnType<typeof setTimeout>>();
@@ -102,6 +104,63 @@ export default function VideoPlayer({
       if (videoRef.current && !videoRef.current.paused) setShowControls(false);
     }, 3000);
   }, []);
+
+  // ── HLS.js setup for .m3u8 streams ──────────────────────────────────────
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Destroy any previous HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const isHls = videoUrl.includes('.m3u8') || videoUrl.includes('m3u8');
+
+    if (!isHls) {
+      // Plain MP4 or other natively supported format — just set src directly
+      video.src = videoUrl;
+      return;
+    }
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        backBufferLength: 90,
+      });
+      hlsRef.current = hls;
+      hls.loadSource(videoUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              hls.destroy();
+              break;
+          }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari has native HLS support
+      video.src = videoUrl;
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [videoUrl]);
 
   // ── subtitle cue tracking (custom renderer for size/position control) ────
 
@@ -391,7 +450,6 @@ export default function VideoPlayer({
       {/* Video */}
       <video
         ref={videoRef}
-        src={videoUrl}
         className="w-full h-full object-contain"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
