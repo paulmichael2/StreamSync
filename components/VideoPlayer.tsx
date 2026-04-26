@@ -63,6 +63,8 @@ export default function VideoPlayer({
   const isSyncing       = useRef(false);
   const syncHostLock    = useRef(false); // prevents applying multiple sync-host responses at once
   const controlsTimer   = useRef<ReturnType<typeof setTimeout>>();
+  const stallTimer      = useRef<ReturnType<typeof setTimeout>>();
+  const lastTimeRef     = useRef(0);
 
   const [isPlaying,       setIsPlaying]       = useState(false);
   const [currentTime,     setCurrentTime]     = useState(0);
@@ -151,6 +153,7 @@ export default function VideoPlayer({
     });
 
     return () => {
+      clearTimeout(stallTimer.current);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
@@ -449,14 +452,36 @@ export default function VideoPlayer({
         className="w-full h-full object-contain"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
-        onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
         onDurationChange={() => setDuration(videoRef.current?.duration ?? 0)}
         onProgress={() => {
           const v = videoRef.current;
           if (v && v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
         }}
-        onWaiting={() => setIsLoading(true)}
-        onCanPlay={() => setIsLoading(false)}
+        onWaiting={() => {
+          setIsLoading(true);
+          // If stalled for 4s on same timestamp, nudge past the bad segment
+          clearTimeout(stallTimer.current);
+          stallTimer.current = setTimeout(() => {
+            const video = videoRef.current;
+            if (!video || video.paused) return;
+            const stuck = Math.abs(video.currentTime - lastTimeRef.current) < 0.2;
+            if (stuck) {
+              // Try HLS.js media recovery first
+              if (hlsRef.current) {
+                try { hlsRef.current.recoverMediaError(); } catch { /* ignore */ }
+              }
+              // Nudge 1 second forward to skip past the bad segment
+              video.currentTime = video.currentTime + 1;
+            }
+          }, 4000);
+        }}
+        onTimeUpdate={() => {
+          const v = videoRef.current;
+          if (!v) return;
+          lastTimeRef.current = v.currentTime;
+          setCurrentTime(v.currentTime);
+        }}
+        onCanPlay={() => { clearTimeout(stallTimer.current); setIsLoading(false); }}
         onLoadedMetadata={() => setIsLoading(false)}
         playsInline
         preload="metadata"
