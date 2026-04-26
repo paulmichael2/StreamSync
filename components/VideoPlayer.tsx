@@ -5,7 +5,6 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Settings, Users, Wifi, ChevronLeft, Check,
 } from 'lucide-react';
-import Hls from 'hls.js';
 import { getPusherClient } from '@/lib/pusherClient';
 import { Participant } from '@/lib/types';
 
@@ -59,7 +58,8 @@ export default function VideoPlayer({
   const videoRef      = useRef<HTMLVideoElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const progressRef   = useRef<HTMLDivElement>(null);
-  const hlsRef          = useRef<Hls | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hlsRef          = useRef<any>(null);
   const isSyncing       = useRef(false);
   const syncHostLock    = useRef(false); // prevents applying multiple sync-host responses at once
   const controlsTimer   = useRef<ReturnType<typeof setTimeout>>();
@@ -125,34 +125,30 @@ export default function VideoPlayer({
       return;
     }
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        backBufferLength: 90,
-      });
-      hlsRef.current = hls;
-      hls.loadSource(videoUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              hls.destroy();
-              break;
+    // Dynamic import keeps hls.js out of the SSR bundle
+    import('hls.js').then(({ default: Hls }) => {
+      if (!videoRef.current) return;
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90,
+        });
+        hlsRef.current = hls;
+        hls.loadSource(videoUrl);
+        hls.attachMedia(videoRef.current);
+        hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal: boolean; type: string }) => {
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+            else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            else hls.destroy();
           }
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari has native HLS support
-      video.src = videoUrl;
-    }
+        });
+      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari has native HLS support
+        videoRef.current.src = videoUrl;
+      }
+    });
 
     return () => {
       if (hlsRef.current) {
