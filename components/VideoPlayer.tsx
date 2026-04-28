@@ -58,13 +58,9 @@ export default function VideoPlayer({
   const videoRef      = useRef<HTMLVideoElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const progressRef   = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hlsRef          = useRef<any>(null);
   const isSyncing       = useRef(false);
   const syncHostLock    = useRef(false); // prevents applying multiple sync-host responses at once
   const controlsTimer   = useRef<ReturnType<typeof setTimeout>>();
-  const stallTimer      = useRef<ReturnType<typeof setTimeout>>();
-  const lastTimeRef     = useRef(0);
 
   const [isPlaying,       setIsPlaying]       = useState(false);
   const [currentTime,     setCurrentTime]     = useState(0);
@@ -92,11 +88,6 @@ export default function VideoPlayer({
 
   const trackSrc = subtitleUrl ? `/api/subtitle?url=${encodeURIComponent(subtitleUrl)}` : null;
 
-  // Route HLS streams through our proxy to avoid CDN CORS blocks
-  const effectiveVideoUrl = videoUrl.includes('.m3u8')
-    ? `/api/proxy?url=${encodeURIComponent(videoUrl)}`
-    : videoUrl;
-
   // ── helpers ──────────────────────────────────────────────────────────────
 
   const flashSync = useCallback(() => {
@@ -111,61 +102,6 @@ export default function VideoPlayer({
       if (videoRef.current && !videoRef.current.paused) setShowControls(false);
     }, 3000);
   }, []);
-
-  // ── HLS.js setup for .m3u8 streams ──────────────────────────────────────
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Destroy any previous HLS instance
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    const isHls = videoUrl.includes('.m3u8') || videoUrl.includes('m3u8');
-
-    if (!isHls) {
-      // Plain MP4 or other natively supported format — just set src directly
-      video.src = videoUrl;
-      return;
-    }
-
-    // Dynamic import keeps hls.js out of the SSR bundle
-    import('hls.js').then(({ default: Hls }) => {
-      if (!videoRef.current) return;
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: false,
-          backBufferLength: 90,
-        });
-        hlsRef.current = hls;
-        // Use proxied URL so all segment fetches go through our domain (avoids CDN CORS blocks)
-        hls.loadSource(effectiveVideoUrl);
-        hls.attachMedia(videoRef.current);
-        hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal: boolean; type: string }) => {
-          if (data.fatal) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-            else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-            else hls.destroy();
-          }
-        });
-      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari: native HLS — proxy the manifest so segment URLs also get rewritten
-        videoRef.current.src = effectiveVideoUrl;
-      }
-    });
-
-    return () => {
-      clearTimeout(stallTimer.current);
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [videoUrl, effectiveVideoUrl]);
 
   // ── subtitle cue tracking (custom renderer for size/position control) ────
 
@@ -455,39 +391,18 @@ export default function VideoPlayer({
       {/* Video */}
       <video
         ref={videoRef}
+        src={videoUrl}
         className="w-full h-full object-contain"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
         onDurationChange={() => setDuration(videoRef.current?.duration ?? 0)}
         onProgress={() => {
           const v = videoRef.current;
           if (v && v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1));
         }}
-        onWaiting={() => {
-          setIsLoading(true);
-          // If stalled for 4s on same timestamp, nudge past the bad segment
-          clearTimeout(stallTimer.current);
-          stallTimer.current = setTimeout(() => {
-            const video = videoRef.current;
-            if (!video || video.paused) return;
-            const stuck = Math.abs(video.currentTime - lastTimeRef.current) < 0.2;
-            if (stuck) {
-              // Try HLS.js media recovery first
-              if (hlsRef.current) {
-                try { hlsRef.current.recoverMediaError(); } catch { /* ignore */ }
-              }
-              // Nudge 1 second forward to skip past the bad segment
-              video.currentTime = video.currentTime + 1;
-            }
-          }, 4000);
-        }}
-        onTimeUpdate={() => {
-          const v = videoRef.current;
-          if (!v) return;
-          lastTimeRef.current = v.currentTime;
-          setCurrentTime(v.currentTime);
-        }}
-        onCanPlay={() => { clearTimeout(stallTimer.current); setIsLoading(false); }}
+        onWaiting={() => setIsLoading(true)}
+        onCanPlay={() => setIsLoading(false)}
         onLoadedMetadata={() => setIsLoading(false)}
         playsInline
         preload="metadata"
